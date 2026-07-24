@@ -1,0 +1,48 @@
+/* Definição de Variáveis Globais */
+:root {
+  /* Cor primária padrão (Azul MAG). Será alterada dinamicamente via JS na tela de Access */
+  --color-primary: #0078d4; 
+  
+  /* Cores base neutras para uso em toda a aplicação */
+  --color-background: #a9d4f5; /* Fundo azul claro padrão da tela inicial */
+  --color-text: #333333;
+  --color-text-light: #666666;
+  --color-white: #ffffff;
+  
+  /* Estados e bordas */
+  --color-disabled-bg: #e0e0e0;
+  --color-disabled-text: #9e9e9e;
+  --border-radius-md: 8px;
+  --border-radius-sm: 4px;
+}
+
+/* Reset Básico Padrão */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Configuração do Corpo do Documento */
+body {
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Padronização de Inputs e Botões */
+input, button, select {
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+/* Classes utilitárias globais (Opcional, mas útil) */
+.text-primary {
+  color: var(--color-primary);
+}
+
+.bg-primary {
+  background-color: var(--color-primary);
+}
