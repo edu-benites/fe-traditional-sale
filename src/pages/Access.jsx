@@ -30,20 +30,23 @@ export default function Access() {
 
       // Aplica a cor primária dinâmica vinda de settings.primaryColour
       document.documentElement.style.setProperty(
-        '--color-primary',
-        partnerData.settings.primaryColour
+        "--color-primary",
+        partnerData.settings.primaryColour,
       );
 
-      // Salva os dados de branding no localStorage para o Header
-      localStorage.setItem('@Mag:partnerLogo', partnerData.logos.negative);
-      localStorage.setItem('@Mag:partnerName', partnerData.legalName);
+      // Salva os dados de branding e o CNPJ no localStorage
+      // Dentro do handleAccess em Access.jsx:
+      localStorage.setItem("@Mag:partnerLogo", partnerData.logos.negative);
+      localStorage.setItem("@Mag:partnerName", partnerData.legalName);
+      localStorage.setItem("@Mag:cnpj", cnpj);
+      localStorage.setItem("@Mag:primaryColour", partnerData.settings.primaryColour);
 
       // Configura o header padrão e redireciona
-      api.defaults.headers.common['cnpj'] = cnpj;
-      navigate('/products');
+      api.defaults.headers.common["cnpj"] = cnpj;
+      navigate("/products");
     } catch (error) {
-      console.error('Error fetching partner details:', error);
-      alert('Could not validate partner. Please check the CNPJ.');
+      console.error("Error fetching partner details:", error);
+      alert("Could not validate partner. Please check the CNPJ.");
     } finally {
       setIsLoading(false);
     }
