@@ -34,12 +34,14 @@ export default function Access() {
         partnerData.settings.primaryColour,
       );
 
-      // Salva os dados de branding e o CNPJ no localStorage
-      // Dentro do handleAccess em Access.jsx:
+      // Salva os dados de branding, CNPJ e corretor no localStorage
       localStorage.setItem("@Mag:partnerLogo", partnerData.logos.negative);
       localStorage.setItem("@Mag:partnerName", partnerData.legalName);
       localStorage.setItem("@Mag:cnpj", cnpj);
       localStorage.setItem("@Mag:primaryColour", partnerData.settings.primaryColour);
+      localStorage.setItem("@Mag:brokerExternalId", externalId);
+      localStorage.setItem("@Mag:brokerProducerId", producerId);
+      localStorage.setItem("@Mag:brokerSusep", susep);
 
       // Configura o header padrão e redireciona
       api.defaults.headers.common["cnpj"] = cnpj;

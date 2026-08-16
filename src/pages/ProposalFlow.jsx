@@ -1,8 +1,31 @@
-import { useState, useEffect, useRef} from "react";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { MainLayout } from "mag-design-system";
+import { getProposalById, updateProposal, completeProposal } from "../services/proposalService";
+import {
+  generateSignatureToken,
+  confirmSignatureToken,
+  createUnderwritingProposal,
+  extractProposalNumber,
+  buildProposalPayload,
+} from "../services/signatureService";
+import Modal from "../components/Modal/Modal";
 import styles from "./ProposalFlow.module.css";
 
 export default function ProposalFlow() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+
+  const [proposalId, setProposalId] = useState(
+    () => searchParams.get("id") || location.state?.proposalId || localStorage.getItem("@Mag:currentProposalId") || ""
+  );
+  const [proposalData, setProposalData] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [proposalNumber, setProposalNumber] = useState("");
+  const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
+  const [copiedJson, setCopiedJson] = useState(false);
+
   const [currentStep, setCurrentStep] = useState(1);
   const [clientType, setClientType] = useState("fisica");
   const [documentNumber, setDocumentNumber] = useState("");
@@ -48,7 +71,7 @@ export default function ProposalFlow() {
   });
 
   const [paymentData, setPaymentData] = useState({
-    banco: "",
+    banco: "341 - Itau",
     agencia: "",
     digitoAgencia: "",
     contaCorrente: "",
@@ -58,6 +81,43 @@ export default function ProposalFlow() {
   const [isTokenSent, setIsTokenSent] = useState(false);
   const [tokenCode, setTokenCode] = useState("");
   const [timer, setTimer] = useState(0);
+  const [isSendingToken, setIsSendingToken] = useState(false);
+  const [tokenError, setTokenError] = useState("");
+  const [signatureId, setSignatureId] = useState("");
+  const [isConfirmingToken, setIsConfirmingToken] = useState(false);
+  const [confirmError, setConfirmError] = useState("");
+
+  // Carrega proposta existente caso o usuário retorne ou recarregue a página
+  useEffect(() => {
+    const id = searchParams.get("id") || location.state?.proposalId || localStorage.getItem("@Mag:currentProposalId");
+    if (id) {
+      setProposalId(id);
+      loadProposal(id);
+    }
+  }, [searchParams, location.state]);
+
+  const loadProposal = async (id) => {
+    try {
+      const data = await getProposalById(id);
+      if (data) {
+        setProposalData(data);
+        if (data.current_step) setCurrentStep(data.current_step);
+        if (data.client_type) setClientType(data.client_type);
+        if (data.document_number) setDocumentNumber(data.document_number);
+        if (data.proposal_number) setProposalNumber(data.proposal_number);
+        if (data.token_method) setTokenMethod(data.token_method);
+        if (data.token_code) setTokenCode(data.token_code);
+        if (data.form_data && Object.keys(data.form_data).length > 0) {
+          setFormData((prev) => ({ ...prev, ...data.form_data }));
+        }
+        if (data.payment_data && Object.keys(data.payment_data).length > 0) {
+          setPaymentData((prev) => ({ ...prev, ...data.payment_data }));
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao carregar dados da proposta:", error);
+    }
+  };
 
   useEffect(() => {
     let interval = null;
@@ -75,16 +135,68 @@ export default function ProposalFlow() {
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
-  const handleSendToken = () => {
-    if (!tokenMethod) return;
-    setIsTokenSent(true);
-    setTimer(60);
+  const formatCurrency = (value) => {
+    const num = Number(value) || 0;
+    return num.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+  };
+
+  const handleSendToken = async () => {
+    if (!tokenMethod || isSendingToken) return;
+
+    setIsSendingToken(true);
+    setTokenError("");
+
+    try {
+      const response = await generateSignatureToken({
+        proposalData,
+        clientType,
+        documentNumber,
+        formData,
+        paymentData,
+        tokenMethod,
+        partnerCnpj: localStorage.getItem("@Mag:cnpj") || "",
+      });
+
+      console.log("Token enviado com sucesso via API MAG:", response);
+
+      // Preserva signatureId retornado pela API para usar na confirmação
+      const retSigId =
+        response?.signature?.signatureId ||
+        response?.signatureId ||
+        response?.id ||
+        "";
+      if (retSigId) setSignatureId(retSigId);
+
+      setIsTokenSent(true);
+      setTimer(60);
+
+      if (proposalId) {
+        await updateProposal(proposalId, { token_method: tokenMethod });
+      }
+    } catch (error) {
+      console.error("Erro ao solicitar envio do token de assinatura:", error);
+      const errorMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        "Não foi possível enviar o token no momento. Verifique as informações e tente novamente.";
+      setTokenError(errorMessage);
+      alert(`Aviso de envio de token: ${errorMessage}`);
+      // Permite prosseguir no fluxo mesmo com fallback
+      setIsTokenSent(true);
+      setTimer(60);
+    } finally {
+      setIsSendingToken(false);
+    }
   };
 
   const handleChangeMethod = () => {
     setIsTokenSent(false);
     setTokenCode("");
     setTokenMethod("");
+    setTokenError("");
   };
 
   const steps = [
@@ -96,12 +208,195 @@ export default function ProposalFlow() {
     { number: 6, title: "Conclusão" },
   ];
 
-  const handleNext = () => {
-    if (currentStep < 6) setCurrentStep(currentStep + 1);
+  // Gera o JSON em tempo real com todos os campos preenchidos
+  const currentPayload = buildProposalPayload({
+    proposalData,
+    clientType,
+    documentNumber,
+    formData,
+    paymentData,
+    tokenMethod,
+    tokenCode,
+    proposalNumber,
+    currentStep,
+    steps,
+  });
+
+  const handleCopyJson = () => {
+    navigator.clipboard.writeText(JSON.stringify(currentPayload, null, 2));
+    setCopiedJson(true);
+    setTimeout(() => setCopiedJson(false), 2000);
   };
 
-  const handleBack = () => {
-    if (currentStep > 1 && currentStep !== 6) setCurrentStep(currentStep - 1);
+  const handleNext = async () => {
+    if (isSaving) return;
+
+    try {
+      setIsSaving(true);
+      const nextStep = Math.min(6, currentStep + 1);
+
+      if (currentStep === 1) {
+        if (proposalId) {
+          await updateProposal(proposalId, {
+            client_type: clientType,
+            document_number: documentNumber,
+            current_step: nextStep,
+          });
+        }
+        setCurrentStep(nextStep);
+      } else if (currentStep === 2) {
+        if (proposalId) {
+          await updateProposal(proposalId, {
+            form_data: formData,
+            current_step: nextStep,
+          });
+        }
+        setCurrentStep(nextStep);
+      } else if (currentStep === 3) {
+        if (proposalId) {
+          await updateProposal(proposalId, {
+            payment_data: paymentData,
+            current_step: nextStep,
+          });
+        }
+        setCurrentStep(nextStep);
+      } else if (currentStep === 4) {
+        if (proposalId) {
+          await updateProposal(proposalId, {
+            current_step: nextStep,
+          });
+        }
+        setCurrentStep(nextStep);
+      } else if (currentStep === 5) {
+        setIsConfirmingToken(true);
+        setConfirmError("");
+
+        const commonParams = {
+          proposalData,
+          clientType,
+          documentNumber,
+          formData,
+          paymentData,
+          tokenMethod,
+          tokenCode,
+          proposalNumber,
+          currentStep,
+          steps,
+          signatureId,
+          partnerCnpj: localStorage.getItem("@Mag:cnpj") || "",
+        };
+
+        let finalProposalNumber = proposalNumber;
+
+        try {
+          // 1. Confirma o token digitado pelo usuário
+          const confirmResponse = await confirmSignatureToken(commonParams);
+          console.log("Token confirmado:", confirmResponse);
+
+          // 2. Verifica se a API retornou uma indicação de falha no corpo (HTTP 200 com erro semântico)
+          const isConfirmFailed =
+            confirmResponse?.success === false ||
+            confirmResponse?.Success === false ||
+            confirmResponse?.status === false ||
+            confirmResponse?.Status === false ||
+            confirmResponse?.confirmed === false ||
+            confirmResponse?.Confirmed === false ||
+            (confirmResponse?.error && confirmResponse.error !== "") ||
+            (confirmResponse?.Error && confirmResponse.Error !== "") ||
+            confirmResponse?.statusCode === 400 ||
+            confirmResponse?.statusCode === 401 ||
+            confirmResponse?.statusCode === 422;
+
+          if (isConfirmFailed) {
+            const apiMsg =
+              confirmResponse?.message ||
+              confirmResponse?.Message ||
+              confirmResponse?.error ||
+              confirmResponse?.Error ||
+              confirmResponse?.detail ||
+              confirmResponse?.Detail ||
+              "Token inválido ou expirado. Verifique o código e tente novamente.";
+            setConfirmError(apiMsg);
+            setIsConfirmingToken(false);
+            setIsSaving(false);
+            return;
+          }
+
+          // 3. Se a confirmação retornar um número de proposta, usa ele
+          const confirmedNumber = extractProposalNumber(confirmResponse);
+
+          // 4. Verifica condição: GeneralInfo.Number <> "" e <> 0
+          const hasValidNumber =
+            confirmedNumber !== "" && confirmedNumber !== 0 && confirmedNumber !== "0";
+
+          if (hasValidNumber) {
+            finalProposalNumber = confirmedNumber;
+          }
+
+          // 5. Chama o endpoint de geração da proposta
+          const proposalResponse = await createUnderwritingProposal({
+            ...commonParams,
+            proposalNumber: finalProposalNumber,
+          });
+          console.log("Proposta gerada:", proposalResponse);
+
+          // 6. Extrai e define o número final da proposta
+          const generatedNumber = extractProposalNumber(proposalResponse);
+          if (generatedNumber !== "" && generatedNumber !== 0 && generatedNumber !== "0") {
+            finalProposalNumber = generatedNumber;
+          }
+
+          setProposalNumber(finalProposalNumber);
+        } catch (error) {
+          console.error("Erro na confirmação/geração da proposta:", error);
+          // Captura mensagem de erro de respostas HTTP 4xx/5xx
+          const apiErrorBody = error?.response?.data;
+          const errorMsg =
+            apiErrorBody?.message ||
+            apiErrorBody?.Message ||
+            apiErrorBody?.error ||
+            apiErrorBody?.Error ||
+            apiErrorBody?.detail ||
+            apiErrorBody?.Detail ||
+            (typeof apiErrorBody === "string" ? apiErrorBody : null) ||
+            "Erro ao confirmar token ou gerar proposta. Verifique o código e tente novamente.";
+          setConfirmError(errorMsg);
+          setIsConfirmingToken(false);
+          setIsSaving(false);
+          return; // Não avança de etapa em caso de erro
+        } finally {
+          setIsConfirmingToken(false);
+        }
+
+
+        if (proposalId) {
+          await completeProposal(proposalId, {
+            proposalNumber: finalProposalNumber,
+            tokenCode,
+            tokenMethod,
+          });
+        }
+        setCurrentStep(6);
+      }
+    } catch (error) {
+      console.error("Erro ao salvar etapa:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleBack = async () => {
+    if (currentStep > 1 && currentStep !== 6) {
+      const prevStep = currentStep - 1;
+      setCurrentStep(prevStep);
+      if (proposalId) {
+        try {
+          await updateProposal(proposalId, { current_step: prevStep });
+        } catch (e) {
+          console.error("Erro ao atualizar etapa no retorno:", e);
+        }
+      }
+    }
   };
 
   const handleInputChange = (e) => {
@@ -122,10 +417,8 @@ export default function ProposalFlow() {
   };
 
   const handleNewProposal = () => {
-    setCurrentStep(1);
-    setClientType("");
-    setDocumentNumber("");
-    setProposalNumber("");
+    localStorage.removeItem("@Mag:currentProposalId");
+    navigate("/products");
   };
 
   // Handler para trocar o tipo de cliente e limpar o campo de documento
@@ -257,6 +550,45 @@ export default function ProposalFlow() {
   return (
     <MainLayout>
       <div className={styles.pageContainer}>
+        {/* Banner com Informações do Produto Selecionado */}
+        {proposalData && (proposalData.product_name || proposalData.total_value) && (
+          <div className={styles.productSummaryBanner}>
+            <div className={styles.productSummaryInfo}>
+              <span className={styles.productSummaryTag}>Produto selecionado</span>
+              <h2 className={styles.productSummaryName}>{proposalData.product_name || "Produto MAG"}</h2>
+            </div>
+
+            <div className={styles.productSummaryMetrics}>
+              <div className={styles.metricItem}>
+                <span className={styles.metricLabel}>Quantidade</span>
+                <span className={styles.metricValue}>
+                  {proposalData.quantity || 1} {Number(proposalData.quantity || 1) === 1 ? "título" : "títulos"}
+                </span>
+              </div>
+
+              <div className={styles.metricDivider}></div>
+
+              <div className={styles.metricItem}>
+                <span className={styles.metricLabel}>Valor total</span>
+                <span className={styles.metricValueHighlight}>
+                  {formatCurrency(proposalData.total_value)}
+                </span>
+              </div>
+
+              <div className={styles.metricDivider}></div>
+
+              <button
+                type="button"
+                onClick={() => setIsJsonModalOpen(true)}
+                className={styles.devBannerButton}
+                title="Visualizar JSON em tempo real"
+              >
+                🛠️ Ver JSON (Dev)
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Linha do Tempo / Stepper Corporativo */}
         <div className={styles.stepperContainer}>
           <div className={styles.stepperTrack}></div>
@@ -1279,8 +1611,8 @@ export default function ProposalFlow() {
                     </span>
                     <strong className={styles.summaryValue}>
                       {clientType === "juridica"
-                        ? formData.nomeFantasia
-                        : formData.nomeCompleto}
+                        ? formData.nomeFantasia || "-"
+                        : formData.nomeCompleto || "-"}
                     </strong>
                   </div>
                   <div className={styles.summaryField}>
@@ -1288,25 +1620,54 @@ export default function ProposalFlow() {
                       {clientType === "juridica" ? "CNPJ" : "CPF"}
                     </span>
                     <strong className={styles.summaryValue}>
-                      {documentNumber}
+                      {documentNumber || "-"}
                     </strong>
                   </div>
                   <div className={styles.summaryField}>
                     <span className={styles.summaryLabel}>E-mail</span>
                     <strong className={styles.summaryValue}>
                       {clientType === "juridica"
-                        ? formData.representanteEmail
-                        : formData.email}
+                        ? formData.representanteEmail || "-"
+                        : formData.email || "-"}
                     </strong>
                   </div>
                   <div className={styles.summaryField}>
                     <span className={styles.summaryLabel}>Telefone</span>
                     <strong className={styles.summaryValue}>
-                      {formData.celular1}
+                      {formData.celular1 || "-"}
                     </strong>
                   </div>
                 </div>
               </div>
+
+              {/* Resumo do Produto Selecionado */}
+              {proposalData && proposalData.product_name && (
+                <div className={styles.summarySectionGroup} style={{ marginTop: "20px" }}>
+                  <h3 className={styles.summarySectionTitle}>Produto selecionado</h3>
+                  <div className={styles.summaryCard}>
+                    <div className={styles.summaryField}>
+                      <span className={styles.summaryLabel}>Produto</span>
+                      <strong className={styles.summaryValue}>{proposalData.product_name}</strong>
+                    </div>
+                    <div className={styles.summaryField}>
+                      <span className={styles.summaryLabel}>Quantidade</span>
+                      <strong className={styles.summaryValue}>{proposalData.quantity || 1} título(s)</strong>
+                    </div>
+                    <div className={styles.summaryField}>
+                      <span className={styles.summaryLabel}>Valor total</span>
+                      <strong className={styles.summaryValue}>
+                        {Number(proposalData.total_value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      </strong>
+                    </div>
+                    {proposalData.month_term > 0 && (
+                      <div className={styles.summaryField}>
+                        <span className={styles.summaryLabel}>Vigência</span>
+                        <strong className={styles.summaryValue}>{proposalData.month_term} meses</strong>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1399,14 +1760,41 @@ export default function ProposalFlow() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => setTimer(60)}
-                      disabled={timer > 0}
-                      className={`${styles.resendButton} ${timer === 0 ? styles.activeResend : ""}`}
+                      onClick={handleSendToken}
+                      disabled={timer > 0 || isSendingToken}
+                      className={`${styles.resendButton} ${timer === 0 && !isSendingToken ? styles.activeResend : ""}`}
                     >
-                      Não recebeu o código?{" "}
-                      <span>Clique aqui para reenviar</span>
+                      {isSendingToken ? (
+                        "Reenviando token..."
+                      ) : (
+                        <>
+                          Não recebeu o código?{" "}
+                          <span>Clique aqui para reenviar</span>
+                        </>
+                      )}
                     </button>
                   </div>
+
+                  {tokenError && (
+                    <div style={{ color: "#e11d48", fontSize: "0.85rem", marginTop: "8px", textAlign: "center" }}>
+                      {tokenError}
+                    </div>
+                  )}
+
+                  {confirmError && (
+                    <div style={{
+                      color: "#e11d48",
+                      fontSize: "0.85rem",
+                      marginTop: "8px",
+                      textAlign: "center",
+                      background: "#fff1f2",
+                      border: "1px solid #fecdd3",
+                      borderRadius: "8px",
+                      padding: "10px 14px",
+                    }}>
+                      <strong>Erro ao confirmar token:</strong> {confirmError}
+                    </div>
+                  )}
 
                   <div style={{ textAlign: "center", marginTop: "12px" }}>
                     <button
@@ -1429,10 +1817,10 @@ export default function ProposalFlow() {
                 className={styles.cardHeader}
                 style={{ textAlign: "center" }}
               >
-                <h2>Conclusão</h2>
+                <h2>Proposta Gerada com Sucesso! ✅</h2>
                 <p>
-                  Para concluir a venda, o seu cliente tem alguns passos a
-                  completar para concluir a contratação. Entenda abaixo:
+                  A proposta foi registrada na MAG. O cliente receberá as
+                  instruções para concluir a contratação.
                 </p>
               </div>
 
@@ -1443,10 +1831,10 @@ export default function ProposalFlow() {
 
                 <div className={styles.proposalBox}>
                   <span className={styles.proposalLabelText}>
-                    O número da proposta gerada é:
+                    Número da proposta gerada:
                   </span>
-                  <strong className={styles.proposalNumberText}>
-                    {proposalNumber}
+                  <strong className={styles.proposalNumberText} style={{ fontSize: "1.6rem", color: "#003366" }}>
+                    {proposalNumber || "—"}
                   </strong>
 
                   <button
@@ -1485,24 +1873,75 @@ export default function ProposalFlow() {
                 <button
                   type="button"
                   onClick={handleSendToken}
-                  disabled={!tokenMethod}
+                  disabled={!tokenMethod || isSendingToken}
                   className={styles.nextButton}
                 >
-                  Enviar token
+                  {isSendingToken ? "Enviando token..." : "Enviar token"}
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={handleNext}
                   className={styles.nextButton}
+                  disabled={isSaving || isConfirmingToken}
                 >
-                  Avançar
+                  {isConfirmingToken
+                    ? "Confirmando token..."
+                    : isSaving
+                    ? "Salvando..."
+                    : currentStep === 5
+                    ? "Confirmar token e gerar proposta"
+                    : "Avançar"}
                 </button>
               )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Botão Flutuante Dev para Acesso Rápido ao JSON */}
+      <button
+        type="button"
+        onClick={() => setIsJsonModalOpen(true)}
+        className={styles.devFloatingButton}
+        title="Visualizar JSON de envio das APIs em tempo real"
+      >
+        <span>🛠️</span>
+        <span>Ver JSON de Envio (Dev)</span>
+      </button>
+
+      {/* Modal Dev de Visualização do JSON em Tempo Real */}
+      <Modal
+        isOpen={isJsonModalOpen}
+        onClose={() => setIsJsonModalOpen(false)}
+        title="JSON de Envio para as APIs (Dev)"
+        maxWidth="850px"
+      >
+        <div className={styles.jsonModalHeader}>
+          <div className={styles.jsonModalBadges}>
+            <span className={styles.stepBadge}>
+              Etapa {currentStep}: {steps.find((s) => s.number === currentStep)?.title}
+            </span>
+            <span className={styles.liveBadge}>
+              <span className={styles.liveDot}></span>
+              Tempo Real
+            </span>
+          </div>
+          <div className={styles.jsonModalActions}>
+            <button
+              type="button"
+              onClick={handleCopyJson}
+              className={styles.copyJsonButton}
+            >
+              {copiedJson ? "✓ Copiado!" : "📋 Copiar JSON"}
+            </button>
+          </div>
+        </div>
+
+        <div className={styles.jsonContainer}>
+          {JSON.stringify(currentPayload, null, 2)}
+        </div>
+      </Modal>
     </MainLayout>
   );
 }

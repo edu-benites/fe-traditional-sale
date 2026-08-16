@@ -1,12 +1,16 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { MainLayout, Icon } from "mag-design-system";
 import { getOffers } from "../services/offerService";
+import { createProposal } from "../services/proposalService";
 import { api } from "../services/api";
 import styles from "./Products.module.css";
 
 export default function Products() {
+  const navigate = useNavigate();
   const [productsList, setProductsList] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isStartingSale, setIsStartingSale] = useState(false);
 
   // Estados dos Modais
   const [selectedProductDetails, setSelectedProductDetails] = useState(null);
@@ -101,6 +105,37 @@ export default function Products() {
   const calculatedTotal = unitValue * currentQty;
   const unitRescue = Number(selectedProductSale?.details?.TotalRescue) || 0;
   const calculatedRescue = unitRescue * currentQty;
+
+  const handleStartSale = async () => {
+    if (!selectedProductSale) return;
+
+    try {
+      setIsStartingSale(true);
+
+      const proposal = await createProposal({
+        productId: selectedProductSale.id,
+        productName: selectedProductSale.details?.ProductName || selectedProductSale.name,
+        offerName: selectedProductSale.details?.OfferName || "",
+        quantity: currentQty,
+        unitValue: unitValue,
+        totalValue: calculatedTotal,
+        monthTerm: selectedProductSale.details?.MonthTerm || 0,
+        rescueValue: calculatedRescue,
+        partnerCnpj: localStorage.getItem("@Mag:cnpj") || "",
+        partnerName: localStorage.getItem("@Mag:partnerName") || "",
+      });
+
+      setIsSaleModalOpen(false);
+      navigate(`/proposalflow?id=${proposal.id}`, {
+        state: { proposalId: proposal.id }
+      });
+    } catch (error) {
+      console.error("Erro ao criar proposta:", error);
+      alert("Ocorreu um erro ao iniciar a venda. Tente novamente.");
+    } finally {
+      setIsStartingSale(false);
+    }
+  };
 
   return (
     <MainLayout>
@@ -267,10 +302,11 @@ export default function Products() {
                 </div>
                 <button 
                   type="button"
-                  style={{ backgroundColor: "#003366", color: "#ffffff", border: "none", padding: "12px 24px", borderRadius: "6px", fontWeight: "600", fontSize: "0.95rem", cursor: "pointer" }}
-                  onClick={() => alert("Avançando para o preenchimento dos dados do cliente...")}
+                  style={{ backgroundColor: "#003366", color: "#ffffff", border: "none", padding: "12px 24px", borderRadius: "6px", fontWeight: "600", fontSize: "0.95rem", cursor: isStartingSale ? "not-allowed" : "pointer", opacity: isStartingSale ? 0.7 : 1 }}
+                  onClick={handleStartSale}
+                  disabled={isStartingSale}
                 >
-                  Iniciar Venda
+                  {isStartingSale ? "Iniciando..." : "Iniciar Venda"}
                 </button>
               </div>
 
