@@ -54,6 +54,27 @@
   overflow-y: auto;
 }
 
+@media (max-width: 640px) {
+  .overlay {
+    align-items: flex-end;
+  }
+
+  .modalContainer {
+    max-width: none !important;
+    max-height: 92vh;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .modalHeader {
+    padding: 18px 16px;
+  }
+
+  .modalBody {
+    max-height: calc(92vh - 70px);
+    padding: 16px;
+  }
+}
+
 @keyframes modalFadeIn {
   from {
     opacity: 0;

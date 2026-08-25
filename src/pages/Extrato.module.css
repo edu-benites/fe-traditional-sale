@@ -1,0 +1,380 @@
+.pageContainer {
+  --extrato-primary: var(--color-primary, #003366);
+  min-height: 100vh;
+  padding: 44px max(24px, calc((100vw - 1180px) / 2));
+  background: #f4f6f8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pageIntro,
+.contentCard {
+  width: 100%;
+  max-width: 1180px;
+}
+
+.pageIntro {
+  margin-bottom: 26px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: var(--extrato-primary);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.pageIntro h1 {
+  max-width: 720px;
+  margin: 0;
+  color: #0f172a;
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  letter-spacing: -0.04em;
+  line-height: 1.04;
+}
+
+.pageIntro > p:last-child {
+  max-width: 680px;
+  margin: 12px 0 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.contentCard {
+  padding: 36px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.loading {
+  padding: 16px;
+  text-align: center;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: end;
+}
+
+.form label {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.form input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #dcdcdc;
+  border-radius: 6px;
+  outline: none;
+}
+
+.form input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.form button {
+  justify-self: end;
+  grid-column: 1 / -1;
+  min-height: 44px;
+  padding: 12px 28px;
+  color: #ffffff;
+  font-weight: 700;
+  background: var(--color-primary);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.form button:disabled {
+  color: #94a3b8;
+  background: #e2e8f0;
+  cursor: not-allowed;
+}
+
+.errorMessage {
+  margin-top: 20px;
+  color: #b91c1c;
+  font-size: 0.9rem;
+}
+
+.printArea {
+  margin-top: 32px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.printHeader {
+  display: flex;
+  align-items: center;
+  padding: 10px 28px;
+  background: #ffffff;
+  border-bottom: 2px solid var(--color-primary);
+}
+
+.partnerLogo {
+  max-width: 250px;
+  max-height: 52px;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.documentBody {
+  padding: 28px;
+}
+
+.documentTitle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.documentTitle h2 {
+  color: #1e3a5f;
+  font-size: 1.25rem;
+}
+
+.documentTitle span {
+  display: block;
+  margin-top: 5px;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+.printButton {
+  padding: 10px 18px;
+  color: #ffffff;
+  font-weight: 700;
+  background: var(--color-primary);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.statementSection {
+  margin-top: 20px;
+  break-inside: avoid;
+}
+
+.statementSection h2 {
+  margin-bottom: 12px;
+  color: #1e3a5f;
+  font-size: 1rem;
+}
+
+.statementGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+
+.field span {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.field strong {
+  overflow-wrap: anywhere;
+}
+
+.statementList {
+  display: grid;
+  gap: 12px;
+}
+
+.tableWrapper {
+  overflow-x: auto;
+}
+
+.installmentsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.installmentsTable th,
+.installmentsTable td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.installmentsTable th {
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.installmentsTable td {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.noInstallments {
+  color: #64748b !important;
+  font-weight: 400 !important;
+  text-align: center !important;
+}
+
+.nestedSection {
+  grid-column: 1 / -1;
+}
+
+.nestedSection .statementSection {
+  margin-top: 0;
+  padding: 16px 0 0;
+  border-top: 1px solid #e2e8f0;
+}
+
+.emptyValue {
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.documentFooter {
+  margin-top: 28px;
+  padding-top: 12px;
+  color: #64748b;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.75rem;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+@media (max-width: 1024px) {
+  .pageContainer {
+    padding: 36px 24px;
+  }
+
+  .contentCard {
+    padding: 30px;
+  }
+}
+
+@media (max-width: 640px) {
+  .pageContainer {
+    padding: 24px 12px;
+  }
+
+  .pageIntro {
+    margin-bottom: 20px;
+  }
+
+  .pageIntro h1 {
+    font-size: 2rem;
+  }
+
+  .contentCard {
+    padding: 22px 14px;
+    border-radius: 14px;
+  }
+
+  .form {
+    grid-template-columns: 1fr;
+  }
+
+  .form button {
+    width: 100%;
+  }
+
+  .statementGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .printHeader {
+    padding: 16px;
+  }
+
+  .printButton {
+    width: 100%;
+  }
+
+  .documentBody {
+    padding: 20px 16px;
+  }
+
+  .documentTitle {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .installmentsTable {
+    min-width: 620px;
+  }
+}
+
+@media print {
+  @page {
+    margin: 6mm 12mm 12mm;
+  }
+
+  :global(body:has(.printArea)) {
+    background: #ffffff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  :global(body:has(.printArea) *) {
+    visibility: hidden;
+  }
+
+  .printArea,
+  .printArea * {
+    visibility: visible;
+  }
+
+  .printArea {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .documentBody {
+    padding: 28px;
+  }
+
+  .printButton {
+    display: none;
+  }
+
+  .statementSection,
+  .installmentsTable tr {
+    break-inside: avoid;
+  }
+}
