@@ -1,6 +1,18 @@
+import { useEffect } from "react";
 import styles from "./Modal.module.css";
 
 export default function Modal({ isOpen, onClose, title, maxWidth = "600px", children }) {
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (

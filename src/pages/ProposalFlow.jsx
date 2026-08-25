@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
-import { MainLayout } from "mag-design-system";
+import { api } from "../services/api";
+import { API_BASE_URL } from "../services/integrationConfig";
+import PartnerHeader from "../components/PartnerHeader/PartnerHeader";
+import { getActivePartnerCnpj } from "../services/partnerBranding";
 import { getProposalById, updateProposal, completeProposal } from "../services/proposalService";
 import {
   generateSignatureToken,
@@ -10,6 +13,19 @@ import {
   buildProposalPayload,
 } from "../services/signatureService";
 import Modal from "../components/Modal/Modal";
+import ConclusionStep from "./proposal-flow/ConclusionStep";
+import DevAutoFillButton from "./proposal-flow/DevAutoFillButton";
+import IdentificationStep from "./proposal-flow/IdentificationStep";
+import PaymentStep from "./proposal-flow/PaymentStep";
+import RegistrationStep from "./proposal-flow/RegistrationStep";
+import SignatureStep from "./proposal-flow/SignatureStep";
+import SummaryStep from "./proposal-flow/SummaryStep";
+import {
+  getBankValue,
+  getMissingRegistrationFields,
+  isValidCnpj,
+  isValidCpf,
+} from "./proposal-flow/validation";
 import styles from "./ProposalFlow.module.css";
 
 export default function ProposalFlow() {
@@ -25,12 +41,22 @@ export default function ProposalFlow() {
   const [proposalNumber, setProposalNumber] = useState("");
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false);
   const [copiedJson, setCopiedJson] = useState(false);
+  const [isAutoFilling, setIsAutoFilling] = useState(false);
+  const advanceStepRef = useRef(null);
 
   const [currentStep, setCurrentStep] = useState(1);
   const [clientType, setClientType] = useState("fisica");
   const [documentNumber, setDocumentNumber] = useState("");
+  const [documentError, setDocumentError] = useState("");
+  const [registrationError, setRegistrationError] = useState("");
+  const [isSummaryConfirmed, setIsSummaryConfirmed] = useState(false);
   const numeroInputRef = useRef(null);
   const [isAddressLocked, setIsAddressLocked] = useState(false);
+  const [professions, setProfessions] = useState([]);
+  const [professionSearch, setProfessionSearch] = useState("");
+  const [isLoadingProfessions, setIsLoadingProfessions] = useState(false);
+  const [professionsError, setProfessionsError] = useState("");
+  const professionsRequestRef = useRef(false);
 
   const [formData, setFormData] = useState({
     nomeCompleto: "",
@@ -71,13 +97,16 @@ export default function ProposalFlow() {
   });
 
   const [paymentData, setPaymentData] = useState({
-    banco: "341 - Itau",
+    banco: "",
     agencia: "",
     digitoAgencia: "",
     contaCorrente: "",
   });
+  const [banks, setBanks] = useState([]);
+  const [isLoadingBanks, setIsLoadingBanks] = useState(false);
+  const [banksError, setBanksError] = useState("");
 
-  const [tokenMethod, setTokenMethod] = useState("sms");
+  const [tokenMethod, setTokenMethod] = useState("");
   const [isTokenSent, setIsTokenSent] = useState(false);
   const [tokenCode, setTokenCode] = useState("");
   const [timer, setTimer] = useState(0);
@@ -95,6 +124,39 @@ export default function ProposalFlow() {
       loadProposal(id);
     }
   }, [searchParams, location.state]);
+
+  const loadProfessions = async () => {
+    if (professions.length || professionsRequestRef.current) return;
+
+    professionsRequestRef.current = true;
+    setIsLoadingProfessions(true);
+    setProfessionsError("");
+
+    try {
+      const cachedProfessions = sessionStorage.getItem("@Mag:professions");
+      const responseData = cachedProfessions
+        ? JSON.parse(cachedProfessions)
+        : (await api.get("/api/domains-cap/v1/professions")).data;
+      const data = responseData?.data || responseData;
+      const sortedProfessions = (Array.isArray(data) ? data : []).sort((first, second) =>
+        (first.description || first.name || "").localeCompare(
+          second.description || second.name || "",
+          "pt-BR"
+        )
+      );
+
+      if (!cachedProfessions) {
+        sessionStorage.setItem("@Mag:professions", JSON.stringify(sortedProfessions));
+      }
+      setProfessions(sortedProfessions);
+    } catch (error) {
+      console.error("Erro ao carregar profissões:", error);
+      professionsRequestRef.current = false;
+      setProfessionsError("Não foi possível carregar as profissões.");
+    } finally {
+      setIsLoadingProfessions(false);
+    }
+  };
 
   const loadProposal = async (id) => {
     try {
@@ -129,6 +191,58 @@ export default function ProposalFlow() {
     return () => clearInterval(interval);
   }, [isTokenSent, timer]);
 
+  useEffect(() => {
+    if (currentStep === 5 && !isTokenSent) setTokenMethod("");
+  }, [currentStep, isTokenSent]);
+
+  useEffect(() => {
+    if (currentStep !== 3) return undefined;
+
+    const offerCode = proposalData?.offer_code || proposalData?.offerCode || "";
+    const cnpj = getActivePartnerCnpj();
+
+    if (!offerCode || !cnpj) {
+      setBanks([]);
+      setBanksError("Não foi possível identificar a oferta ou o parceiro para carregar os bancos.");
+      return undefined;
+    }
+
+    let isCurrent = true;
+    setIsLoadingBanks(true);
+    setBanksError("");
+
+    const loadBanks = async () => {
+      try {
+        const response = await api.get(`/api/offers-cap/v1/offer/${offerCode}/banks`, {
+          headers: { CNPJ: cnpj },
+        });
+        const availableBanks = response.data?.data || response.data || [];
+        const normalizedBanks = Array.isArray(availableBanks) ? availableBanks : [];
+
+        if (!isCurrent) return;
+
+        setBanks(normalizedBanks);
+        setPaymentData((previous) =>
+          normalizedBanks.some((bank) => getBankValue(bank) === previous.banco)
+            ? previous
+            : { ...previous, banco: "" }
+        );
+      } catch (error) {
+        if (!isCurrent) return;
+        console.error("Erro ao carregar bancos da oferta:", error);
+        setBanks([]);
+        setBanksError("Não foi possível carregar os bancos disponíveis para esta oferta.");
+      } finally {
+        if (isCurrent) setIsLoadingBanks(false);
+      }
+    };
+
+    loadBanks();
+    return () => {
+      isCurrent = false;
+    };
+  }, [currentStep, proposalData]);
+
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -157,7 +271,7 @@ export default function ProposalFlow() {
         formData,
         paymentData,
         tokenMethod,
-        partnerCnpj: localStorage.getItem("@Mag:cnpj") || "",
+        partnerCnpj: getActivePartnerCnpj(),
       });
 
       console.log("Token enviado com sucesso via API MAG:", response);
@@ -221,11 +335,62 @@ export default function ProposalFlow() {
     currentStep,
     steps,
   });
+  const matchedProfessions = professions
+    .filter((profession) =>
+      (profession.description || profession.name || "")
+        .toLocaleLowerCase("pt-BR")
+        .includes(professionSearch.toLocaleLowerCase("pt-BR"))
+    )
+    .slice(0, 50);
+  const incomeLabel = {
+    1500: "Até R$ 1.500",
+    4000: "Entre R$ 1.501 e R$ 4.000",
+    7500: "Entre R$ 4.001 e R$ 7.500",
+    mais7500: "A partir de R$ 7.500",
+  }[formData.faixaRenda];
+  const isTokenCodeValid = /^\d{4}$/.test(tokenCode);
+  const mobileGuideStart = Math.min(Math.max(currentStep - 1, 1), steps.length - 2);
+  const renderSummaryFields = (fields) =>
+    fields
+      .filter(([, value]) => value !== undefined && value !== null && value !== "")
+      .map(([label, value]) => (
+        <div className={styles.summaryField} key={label}>
+          <span className={styles.summaryLabel}>{label}</span>
+          <strong className={styles.summaryValue}>{value}</strong>
+        </div>
+      ));
 
   const handleCopyJson = () => {
     navigator.clipboard.writeText(JSON.stringify(currentPayload, null, 2));
     setCopiedJson(true);
     setTimeout(() => setCopiedJson(false), 2000);
+  };
+
+  const focusField = (fieldName) => {
+    requestAnimationFrame(() => {
+      const field = document.querySelector(`[name="${fieldName}"]`);
+      field?.scrollIntoView({ behavior: "smooth", block: "center" });
+      field?.focus();
+    });
+  };
+
+  const queueProposalGedUpload = (number) => {
+    if (!number) return;
+
+    const uploadData = {
+      proposalNumber: number,
+      proposalData: { ...proposalData },
+      clientType,
+      documentNumber,
+      formData: { ...formData },
+      paymentData: { ...paymentData },
+    };
+
+    window.setTimeout(() => {
+      void import("../services/gedService")
+        .then(({ uploadProposalToGed }) => uploadProposalToGed(uploadData))
+        .catch((error) => console.error("Erro assíncrono ao enviar proposta ao GED:", error));
+    }, 0);
   };
 
   const handleNext = async () => {
@@ -236,6 +401,18 @@ export default function ProposalFlow() {
       const nextStep = Math.min(6, currentStep + 1);
 
       if (currentStep === 1) {
+        const isDocumentValid =
+          clientType === "fisica"
+            ? isValidCpf(documentNumber)
+            : isValidCnpj(documentNumber);
+
+        if (!isDocumentValid) {
+          setDocumentError(`Informe um ${clientType === "fisica" ? "CPF" : "CNPJ"} válido.`);
+          focusField("documentNumber");
+          return;
+        }
+
+        setDocumentError("");
         if (proposalId) {
           await updateProposal(proposalId, {
             client_type: clientType,
@@ -245,6 +422,17 @@ export default function ProposalFlow() {
         }
         setCurrentStep(nextStep);
       } else if (currentStep === 2) {
+        const missingFields = getMissingRegistrationFields(clientType, formData);
+
+        if (missingFields.length) {
+          setRegistrationError(
+            `Preencha os campos obrigatórios: ${missingFields.map(({ label }) => label).join(", ")}.`
+          );
+          focusField(missingFields[0].field);
+          return;
+        }
+
+        setRegistrationError("");
         if (proposalId) {
           await updateProposal(proposalId, {
             form_data: formData,
@@ -259,8 +447,11 @@ export default function ProposalFlow() {
             current_step: nextStep,
           });
         }
+        setIsSummaryConfirmed(false);
         setCurrentStep(nextStep);
       } else if (currentStep === 4) {
+        if (!isSummaryConfirmed) return;
+
         if (proposalId) {
           await updateProposal(proposalId, {
             current_step: nextStep,
@@ -268,6 +459,8 @@ export default function ProposalFlow() {
         }
         setCurrentStep(nextStep);
       } else if (currentStep === 5) {
+        if (!isTokenCodeValid) return;
+
         setIsConfirmingToken(true);
         setConfirmError("");
 
@@ -283,7 +476,7 @@ export default function ProposalFlow() {
           currentStep,
           steps,
           signatureId,
-          partnerCnpj: localStorage.getItem("@Mag:cnpj") || "",
+          partnerCnpj: getActivePartnerCnpj(),
         };
 
         let finalProposalNumber = proposalNumber;
@@ -377,6 +570,7 @@ export default function ProposalFlow() {
           });
         }
         setCurrentStep(6);
+        queueProposalGedUpload(finalProposalNumber);
       }
     } catch (error) {
       console.error("Erro ao salvar etapa:", error);
@@ -385,9 +579,12 @@ export default function ProposalFlow() {
     }
   };
 
+  advanceStepRef.current = handleNext;
+
   const handleBack = async () => {
     if (currentStep > 1 && currentStep !== 6) {
       const prevStep = currentStep - 1;
+      if (currentStep === 4) setIsSummaryConfirmed(false);
       setCurrentStep(prevStep);
       if (proposalId) {
         try {
@@ -399,8 +596,82 @@ export default function ProposalFlow() {
     }
   };
 
+  const handleAutoFillCurrentStep = async () => {
+    if (isAutoFilling || currentStep > 4) return;
+
+    setIsAutoFilling(true);
+
+    if (currentStep === 1) {
+      setClientType("fisica");
+      setDocumentNumber("529.982.247-25");
+      setDocumentError("");
+    }
+
+    if (currentStep === 2) {
+      if (clientType === "juridica") {
+        setFormData((previous) => ({
+          ...previous,
+          nomeFantasia: "Empresa de Teste",
+          razaoSocial: "Empresa de Teste LTDA",
+          faturamentoMensal: "10000",
+          ramoAtividade: "Tecnologia",
+          cep: "01310-100",
+          endereco: "Avenida Paulista",
+          numero: "1000",
+          bairro: "Bela Vista",
+          cidade: "São Paulo",
+          uf: "SP",
+          representanteNome: "Contato de Teste",
+          representanteEmail: "eduardobenitestetris@gmail.com",
+          celular1: "(31) 99948-4639",
+        }));
+      } else {
+        setFormData((previous) => ({
+          ...previous,
+          nomeCompleto: "Cliente de Teste",
+          pronomePreferencia: "Ele/Dele",
+          sexo: "Masculino",
+          dataNascimento: "1990-01-01",
+          rg: "123456789",
+          orgaoExpedidor: "SSP",
+          dataExpedicao: "2010-01-01",
+          estadoCivil: "Solteiro",
+          email: "eduardobenitestetris@gmail.com",
+          celular1: "(31) 99948-4639",
+          cep: "01310-100",
+          endereco: "Avenida Paulista",
+          numero: "1000",
+          bairro: "Bela Vista",
+          cidade: "São Paulo",
+          uf: "SP",
+          profissao: "TESTE",
+          faixaRenda: "4000",
+        }));
+        setProfessionSearch("Profissão de teste");
+      }
+      setRegistrationError("");
+    }
+
+    if (currentStep === 3) {
+      setPaymentData((previous) => ({
+        ...previous,
+        banco: banks[0] ? getBankValue(banks[0]) : "001 - Banco de teste",
+        agencia: "1234",
+        digitoAgencia: "5",
+        contaCorrente: "123456-7",
+      }));
+    }
+
+    if (currentStep === 4) setIsSummaryConfirmed(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await advanceStepRef.current?.();
+    setIsAutoFilling(false);
+  };
+
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
+    setRegistrationError("");
     setFormData((prev) => ({
       ...prev,
       [name]: type === "checkbox" ? checked : value,
@@ -413,7 +684,8 @@ export default function ProposalFlow() {
   };
 
   const handleDownloadProposal = () => {
-    alert(`Baixando o PDF da proposta nº ${proposalNumber}...`);
+    if (!proposalNumber) return;
+    window.open(`/proposal-pdf/${encodeURIComponent(proposalNumber)}`, "_blank");
   };
 
   const handleNewProposal = () => {
@@ -430,6 +702,7 @@ export default function ProposalFlow() {
   // Handler para formatar celular/telefone fixo no padrão (00) 00000-0000 ou (00) 0000-0000
   const handlePhoneChange = (e) => {
     const { name, value } = e.target;
+    setRegistrationError("");
 
     // 1. Pega o valor e limpa tudo que não é número
     let v = value.replace(/\D/g, "");
@@ -458,6 +731,7 @@ export default function ProposalFlow() {
   // Handler que aplica as máscaras dinamicamente
   const handleDocumentChange = (e) => {
     let value = e.target.value;
+    setDocumentError("");
 
     if (clientType === "fisica") {
       // Máscara de CPF (000.000.000-00) - Apenas números
@@ -486,13 +760,14 @@ export default function ProposalFlow() {
 
   const handleCepChange = async (e) => {
     let { name, value } = e.target;
-    
+    setRegistrationError("");
+
     // 1. Remove tudo que não for número e limita a 8 dígitos
     value = value.replace(/\D/g, "").substring(0, 8);
-    
+
     // 2. Aplica a máscara (00000-000)
     let maskedValue = value.replace(/^(\d{5})(\d)/, "$1-$2");
-    
+
     // 3. Atualiza o estado do CEP
     setFormData((prev) => ({
       ...prev,
@@ -502,7 +777,7 @@ export default function ProposalFlow() {
     // 4. Se completou os 8 dígitos, dispara a busca na API corporativa
     if (value.length === 8) {
       try {
-        const response = await fetch(`https://apis-hmg.magcap.com.br/api/sales-cap/v1/postalcode/${value}`, {
+        const response = await fetch(`${API_BASE_URL}/api/sales-cap/v1/postalcode/${value}`, {
           method: 'GET',
           headers: {
             'Authorization': 'Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjI1MTNGMkE5MjcyRjEzRjkwNkVFQTJDMkUzNEMyM0JBMTZDNEI2QUYiLCJ0eXAiOiJKV1QiLCJ4NXQiOiJKUlB5cVNjdkVfa0c3cUxDNDB3anVoYkV0cTgifQ.eyJuYmYiOjE3ODM5NzU1OTMsImV4cCI6MTc4NDA2MTk5MywiaXNzIjoiaHR0cHM6Ly9pZGVudGlkYWRlaG1nLm1hZ2NhcC5jb20uYnIiLCJhdWQiOlsiaHR0cHM6Ly9pZGVudGlkYWRlaG1nLm1hZ2NhcC5jb20uYnIvcmVzb3VyY2VzIiwiMWU2YTllYmQtZTI4ZC00OGNiLTkxNjUtOTQ1YTMwNDBiOTNlIl0sImNsaWVudF9pZCI6InVzcl9jYXBfYXBpX2htZyIsImNsaWVudF9jcGYiOiJvcGVyYWNhbyIsImNsaWVudF9lbXByZXNhIjpbIjAyMDM4MjJjMDAwODMwIiwiMDQ4OTE4NTAwMDAxODgiLCIyMjA4NTAwMzAwMDEwOCIsIjI0NDgzMTAwMDAxMDciLCIzMzYwODMwODAwMDE3MyIsIjUyNzgwNTUxMDAwMTE5Il0sImp0aSI6ImhJd1NDeWVsc2JqdF94NWI4a2ZSYkEiLCJzY29wZSI6WyJjYXAuYXBpIl19.TAvlGt123h_3oRUcIeRz_Qu2ADALB-FnQT0SZ_lOrLVZpBe82fdobQ9SnLzf6_tgFnaOtZ0mXt5phRByzGJKT2DQMZv2PWQiXE1qxPReiGPmJHZoNG4T_YAJUuI50yfP-FYE_cLozFcSbwavh2xsDPm0JlAdi1fxSe9yNlwACHOg-yq35T60eIPn17ENS4Q2N5bA47iCGnpfHHkXHRCi2DzCz--LB0pd3pidZxCziiAns_EW8gyXV5jvYNvxdQeAZir3A950Zre0SShPqWIkID-jQ3XVkcX6-B81Uoz5UAr4ZcKPpwfbVgK4BgWMukorSmaPiIImF3f2Dd7Pg1aSNw'
@@ -511,7 +786,7 @@ export default function ProposalFlow() {
 
         if (response.ok) {
           const data = await response.json();
-          
+
           // Preenche os campos com os dados retornados pela API da MAG
           setFormData((prev) => ({
             ...prev,
@@ -548,165 +823,136 @@ export default function ProposalFlow() {
 
 
   return (
-    <MainLayout>
+    <>
+      <PartnerHeader />
       <div className={styles.pageContainer}>
-        {/* Banner com Informações do Produto Selecionado */}
-        {proposalData && (proposalData.product_name || proposalData.total_value) && (
-          <div className={styles.productSummaryBanner}>
-            <div className={styles.productSummaryInfo}>
-              <span className={styles.productSummaryTag}>Produto selecionado</span>
-              <h2 className={styles.productSummaryName}>{proposalData.product_name || "Produto MAG"}</h2>
+        <header className={styles.flowIntro}>
+          <p className={styles.flowEyebrow}>Venda assistida</p>
+          <div className={styles.flowIntroContent}>
+            <div>
+              <h1>Conclua a proposta</h1>
+              <p>Preencha os dados do cliente e avance pelas etapas para formalizar a venda.</p>
             </div>
+            <span className={styles.flowStatus}>Etapa {currentStep} de {steps.length}</span>
+          </div>
+        </header>
 
-            <div className={styles.productSummaryMetrics}>
-              <div className={styles.metricItem}>
-                <span className={styles.metricLabel}>Quantidade</span>
-                <span className={styles.metricValue}>
-                  {proposalData.quantity || 1} {Number(proposalData.quantity || 1) === 1 ? "título" : "títulos"}
-                </span>
-              </div>
-
-              <div className={styles.metricDivider}></div>
-
-              <div className={styles.metricItem}>
-                <span className={styles.metricLabel}>Valor total</span>
-                <span className={styles.metricValueHighlight}>
-                  {formatCurrency(proposalData.total_value)}
-                </span>
-              </div>
-
-              <div className={styles.metricDivider}></div>
-
+        <div className={styles.flowHeader}>
+          {proposalData && (proposalData.product_name || proposalData.total_value) && (
+            <div className={styles.productSummaryBanner}>
               <button
                 type="button"
-                onClick={() => setIsJsonModalOpen(true)}
+                onClick={() => navigate("/products")}
                 className={styles.devBannerButton}
-                title="Visualizar JSON em tempo real"
+                title="Voltar aos produtos"
               >
-                🛠️ Ver JSON (Dev)
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M19 12H5" />
+                  <path d="m12 19-7-7 7-7" />
+                </svg>
+                Voltar aos produtos
               </button>
-            </div>
-          </div>
-        )}
 
-        {/* Linha do Tempo / Stepper Corporativo */}
-        <div className={styles.stepperContainer}>
-          <div className={styles.stepperTrack}></div>
-          {steps.map((step) => {
-            const isCompleted = step.number < currentStep;
-            const isCurrent = step.number === currentStep;
-
-            return (
-              <div key={step.number} className={styles.stepItem}>
-                <div
-                  className={`
-                    ${styles.stepCircle} 
-                    ${isCompleted ? styles.completed : ""} 
-                    ${isCurrent ? styles.current : ""}
-                  `}
-                >
-                  {isCompleted ? "✓" : step.number}
+              <div className={styles.productSummaryMetrics}>
+                <div className={styles.metricItem}>
+                  <span className={styles.metricLabel}>Quantidade</span>
+                  <span className={styles.metricValue}>
+                    {proposalData.quantity || 1} {Number(proposalData.quantity || 1) === 1 ? "título" : "títulos"}
+                  </span>
                 </div>
-                <span
-                  className={`${styles.stepTitle} ${isCurrent ? styles.activeText : ""}`}
-                >
-                  {step.title}
-                </span>
-              </div>
-            );
-          })}
-        </div>
 
-        {/* Conteúdo Dinâmico por Etapa */}
-        <div
-          className={styles.contentCard}
-          style={{ maxWidth: currentStep === 2 ? "850px" : "700px" }}
-        >
-          {/* ETAPA 1: Identificação do Cliente */}
-          {currentStep === 1 && (
-            <div className={styles.stepContent}>
-              <div className={styles.cardHeader}>
-                <h2>Identificação do cliente</h2>
-                <p>
-                  Com o CPF/CNPJ vamos descobrir se é um novo cliente ou não.
-                </p>
-              </div>
+                <div className={styles.metricDivider}></div>
 
-              <div className={styles.formGroup}>
-                <label className={styles.labelTitle}>Tipo de cliente</label>
-                <div className={styles.incomeGrid}>
-                  <label
-                    className={`${styles.incomeRadioCard} ${clientType === "fisica" ? styles.selectedIncomeCard : ""}`}
-                  >
-                    <input
-                      type="radio"
-                      name="clientType"
-                      checked={clientType === "fisica"}
-                      onChange={() => {
-                        setClientType("fisica");
-                        setDocumentNumber("");
-                      }}
-                    />
-                    <span>Pessoa física</span>
-                  </label>
-
-                  <label
-                    className={`${styles.incomeRadioCard} ${clientType === "juridica" ? styles.selectedIncomeCard : ""}`}
-                  >
-                    <input
-                      type="radio"
-                      name="clientType"
-                      checked={clientType === "juridica"}
-                      onChange={() => {
-                        setClientType("juridica");
-                        setDocumentNumber("");
-                      }}
-                    />
-                    <span>Pessoa jurídica</span>
-                  </label>
+                <div className={styles.metricItem}>
+                  <span className={styles.metricLabel}>Vigência</span>
+                  <span className={styles.metricValue}>
+                    {proposalData.month_term ? `${proposalData.month_term} meses` : "-"}
+                  </span>
                 </div>
-              </div>
 
-              <div className={styles.inputGroup}>
-                <label>{clientType === "fisica" ? "CPF" : "CNPJ"}</label>
-                <input
-                  type="text"
-                  placeholder={
-                    clientType === "fisica"
-                      ? "000.000.000-00"
-                      : "AA.AAA.AAA/AAAA-99"
-                  }
-                  value={documentNumber}
-                  onChange={handleDocumentChange}
-                  className={styles.input}
-                />
+                <div className={styles.metricDivider}></div>
+
+                <div className={styles.metricItem}>
+                  <span className={styles.metricLabel}>Valor da Parcela</span>
+                  <span className={styles.metricValueHighlight}>
+                    {formatCurrency(proposalData.total_value)}
+                  </span>
+                </div>
+
+                <div className={styles.metricDivider}></div>
+
+                <div className={styles.metricItem}>
+                  <span className={styles.productSummaryTag}>Produto selecionado</span>
+                  <h2 className={styles.productSummaryName}>{proposalData.product_name || "Produto MAG"}</h2>
+                </div>
               </div>
             </div>
           )}
 
+          <section className={styles.guide} aria-label="Etapas da proposta">
+            <div className={styles.guideHeading}>
+              <span>Jornada da proposta</span>
+              <strong>Você está na etapa {currentStep}</strong>
+            </div>
+            <div className={styles.guideSteps}>
+              {steps.map((step) => {
+                const isCompleted = step.number < currentStep;
+                const isCurrent = step.number === currentStep;
+
+                return (
+                  <div
+                    className={`${styles.guidePart} ${step.number >= mobileGuideStart && step.number < mobileGuideStart + 3 ? styles.mobileVisible : ""}`}
+                    key={step.number}
+                  >
+                    <div className={`${styles.guideStep} ${isCompleted ? styles.completed : ""} ${isCurrent ? styles.current : ""}`}>
+                      <span className={styles.guideIndex}>{isCompleted ? "✓" : step.number}</span>
+                      <span className={styles.guideCopy}>
+                        <strong>{step.title}</strong>
+                      </span>
+                    </div>
+                    {step.number < steps.length && (
+                      <span className={`${styles.guideConnector} ${isCompleted ? styles.completedConnector : ""}`} aria-hidden="true" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+
+        {/* Conteúdo Dinâmico por Etapa */}
+        <div className={styles.contentCard}>
+          {/* ETAPA 1: Identificação do Cliente */}
+          {currentStep === 1 && (
+            <IdentificationStep
+              clientType={clientType}
+              documentError={documentError}
+              documentNumber={documentNumber}
+              onClientTypeChange={(type) => {
+                setClientType(type);
+                setDocumentNumber("");
+                setDocumentError("");
+              }}
+              onDocumentChange={handleDocumentChange}
+            />
+          )}
+
           {/* ETAPA 2: Cadastro */}
           {currentStep === 2 && (
-            <div className={styles.stepContent}>
-              <div className={styles.cardHeader}>
-                <span
-                  style={{
-                    fontSize: "0.8rem",
-                    color: "#64748b",
-                    fontWeight: "600",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {clientType === "juridica"
-                    ? "Pessoa jurídica"
-                    : "Pessoa física"}
-                </span>
-                <h2 style={{ margin: "2px 0 4px 0" }}>Ficha de cadastro</h2>
-                <p>
-                  {clientType === "juridica"
-                    ? "Preencha com as informações da empresa e dos sócios."
-                    : "Preencha com as informações do cliente."}
-                </p>
-              </div>
+            <RegistrationStep
+              clientType={clientType}
+              registrationError={registrationError}
+            >
 
               {clientType === "juridica" ? (
                 /* ================= CADASTRO PJ ================= */
@@ -718,56 +964,58 @@ export default function ProposalFlow() {
                   >
                     <h3 className={styles.sectionTitle}>Dados empresariais</h3>
 
-                    <div className={styles.formGroup}>
-                      <label>Nome fantasia *</label>
-                      <input
-                        type="text"
-                        name="nomeFantasia"
-                        autoComplete="off"
-                        placeholder="Digite o nome fantasia da empresa"
-                        value={formData.nomeFantasia}
-                        onChange={handleInputChange}
-                        className={styles.textInput}
-                      />
-                    </div>
+                    <div className={styles.gridRow}>
+                      <div className={styles.formGroup}>
+                        <label>Nome fantasia *</label>
+                        <input
+                          type="text"
+                          name="nomeFantasia"
+                          autoComplete="off"
+                          placeholder="Digite o nome fantasia da empresa"
+                          value={formData.nomeFantasia}
+                          onChange={handleInputChange}
+                          className={styles.textInput}
+                        />
+                      </div>
 
-                    <div className={styles.formGroup}>
-                      <label>Razão social *</label>
-                      <input
-                        type="text"
-                        name="razaoSocial"
-                        autoComplete="off"
-                        placeholder="Digite a Razao social da empresa"
-                        value={formData.razaoSocial}
-                        onChange={handleInputChange}
-                        className={styles.textInput}
-                      />
-                    </div>
+                      <div className={styles.formGroup}>
+                        <label>Razão social *</label>
+                        <input
+                          type="text"
+                          name="razaoSocial"
+                          autoComplete="off"
+                          placeholder="Digite a Razao social da empresa"
+                          value={formData.razaoSocial}
+                          onChange={handleInputChange}
+                          className={styles.textInput}
+                        />
+                      </div>
 
-                    <div className={styles.formGroup}>
-                      <label>Faturamento mensal *</label>
-                      <input
-                        type="text"
-                        name="faturamentoMensal"
-                        autoComplete="off"
-                        placeholder="Digite o valor de faturamento mensal"
-                        value={formData.faturamentoMensal}
-                        onChange={handleInputChange}
-                        className={styles.textInput}
-                      />
-                    </div>
+                      <div className={styles.formGroup}>
+                        <label>Faturamento mensal *</label>
+                        <input
+                          type="text"
+                          name="faturamentoMensal"
+                          autoComplete="off"
+                          placeholder="Digite o valor de faturamento mensal"
+                          value={formData.faturamentoMensal}
+                          onChange={handleInputChange}
+                          className={styles.textInput}
+                        />
+                      </div>
 
-                    <div className={styles.formGroup}>
-                      <label>Ramo de atividade *</label>
-                      <input
-                        type="text"
-                        name="ramoAtividade"
-                        autoComplete="off"
-                        placeholder="Digite o ramo de atividade da empresa"
-                        value={formData.ramoAtividade}
-                        onChange={handleInputChange}
-                        className={styles.textInput}
-                      />
+                      <div className={styles.formGroup}>
+                        <label>Ramo de atividade *</label>
+                        <input
+                          type="text"
+                          name="ramoAtividade"
+                          autoComplete="off"
+                          placeholder="Digite o ramo de atividade da empresa"
+                          value={formData.ramoAtividade}
+                          onChange={handleInputChange}
+                          className={styles.textInput}
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -921,7 +1169,7 @@ export default function ProposalFlow() {
                     </p>
 
                     <div
-                      className={styles.gridRow}
+                      className={styles.gridRow3Equal}
                       style={{ marginBottom: "12px" }}
                     >
                       <div className={styles.formGroup}>
@@ -942,7 +1190,7 @@ export default function ProposalFlow() {
                           type="email"
                           name="representanteEmail"
                           autoComplete="off"
-                          placeholder="Digite o e-mail de contato do cliente"
+                          placeholder="Digite o e-mail de contato"
                           value={formData.representanteEmail}
                           onChange={handleInputChange}
                           className={styles.textInput}
@@ -950,51 +1198,47 @@ export default function ProposalFlow() {
                       </div>
                     </div>
 
-                    <div
-                      className={styles.formGroup}
-                      style={{ marginBottom: "12px" }}
-                    >
-                      <label>Celular 1 (Obrigatório) *</label>
-                      <input
-                        type="text"
-                        name="celular1"
-                        autoComplete="off"
-                        placeholder="(00) 00000-0000"
-                        value={formData.celular1}
-                        onChange={(e) => {
-                          handlePhoneChange(e);
-                        }}
-                        className={styles.textInput}
-                      />
-                    </div>
+                    <div className={styles.gridRow3Equal}>
+                      <div className={styles.formGroup}>
+                        <label>Celular 1 (Obrigatório) *</label>
+                        <input
+                          type="text"
+                          name="celular1"
+                          autoComplete="off"
+                          placeholder="(00) 00000-0000"
+                          value={formData.celular1}
+                          onChange={(e) => {
+                            handlePhoneChange(e);
+                          }}
+                          className={styles.textInput}
+                        />
+                      </div>
 
-                    <div
-                      className={styles.formGroup}
-                      style={{ marginBottom: "12px" }}
-                    >
-                      <label>Telefone 2 (Opcional)</label>
-                      <input
-                        type="text"
-                        name="celular2"
-                        autoComplete="off"
-                        placeholder="(00) 00000-0000"
-                        value={formData.celular2}
-                        onChange={handlePhoneChange}
-                        className={styles.textInput}
-                      />
-                    </div>
+                      <div className={styles.formGroup}>
+                        <label>Telefone 2 (Opcional)</label>
+                        <input
+                          type="text"
+                          name="celular2"
+                          autoComplete="off"
+                          placeholder="(00) 00000-0000"
+                          value={formData.celular2}
+                          onChange={handlePhoneChange}
+                          className={styles.textInput}
+                        />
+                      </div>
 
-                    <div className={styles.formGroup}>
-                      <label>Telefone 3 (Opcional)</label>
-                      <input
-                        type="text"
-                        name="celular3"
-                        autoComplete="off"
-                        placeholder="(00) 00000-0000"
-                        value={formData.celular3}
-                        onChange={handlePhoneChange}
-                        className={styles.textInput}
-                      />
+                      <div className={styles.formGroup}>
+                        <label>Telefone 3 (Opcional)</label>
+                        <input
+                          type="text"
+                          name="celular3"
+                          autoComplete="off"
+                          placeholder="(00) 00000-0000"
+                          value={formData.celular3}
+                          onChange={handlePhoneChange}
+                          className={styles.textInput}
+                        />
+                      </div>
                     </div>
                   </div>
                 </>
@@ -1366,17 +1610,38 @@ export default function ProposalFlow() {
 
                     <div className={styles.formGroup}>
                       <label>Profissão *</label>
-                      <select
+                      <input
+                        type="text"
                         name="profissao"
-                        value={formData.profissao}
-                        onChange={handleInputChange}
+                        list="professions-list"
+                        value={professionSearch}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          const selectedProfession = professions.find(
+                            (profession) =>
+                              (profession.name || profession.description || "") === value
+                          );
+                          setProfessionSearch(value);
+                          setRegistrationError("");
+                          setFormData((previous) => ({
+                            ...previous,
+                            profissao: selectedProfession?.id || "",
+                          }));
+                        }}
+                        onFocus={loadProfessions}
+                        placeholder={isLoadingProfessions ? "Carregando profissões..." : "Busque a profissão do cliente"}
                         className={styles.textInput}
-                      >
-                        <option value="">Busque a profissão do cliente</option>
-                        <option value="Analista">Analista de Sistemas</option>
-                        <option value="Engenheiro">Engenheiro</option>
-                        <option value="Outros">Outros</option>
-                      </select>
+                        disabled={isLoadingProfessions}
+                      />
+                      <datalist id="professions-list">
+                        {matchedProfessions.map((profession, index) => (
+                          <option
+                            key={`${profession.id || "profession"}-${profession.name || index}`}
+                            value={profession.name || profession.description || profession.id}
+                          />
+                        ))}
+                      </datalist>
+                      {professionsError && <span className={styles.helperText}>{professionsError}</span>}
                     </div>
 
                     <div
@@ -1487,114 +1752,26 @@ export default function ProposalFlow() {
                   </div>
                 </>
               )}
-            </div>
+            </RegistrationStep>
           )}
 
           {/* ETAPA 3: Forma de Pagamento */}
           {currentStep === 3 && (
-            <div className={styles.stepContent}>
-              <div className={styles.cardHeader}>
-                <h2>Forma de pagamento</h2>
-                <p>Preencha com as informações do cliente.</p>
-              </div>
-
-              <div
-                className={styles.formGroup}
-                style={{
-                  backgroundColor: "#f8fafc",
-                  padding: "12px",
-                  borderRadius: "6px",
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: "0.75rem",
-                    color: "#64748b",
-                    fontWeight: "600",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {clientType === "juridica"
-                    ? "CNPJ do titular"
-                    : "CPF do titular"}
-                </span>
-                <strong
-                  style={{
-                    fontSize: "1rem",
-                    color: "#003366",
-                    marginTop: "2px",
-                  }}
-                >
-                  {documentNumber}
-                </strong>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label>Banco *</label>
-                <select
-                  name="banco"
-                  value={paymentData.banco}
-                  onChange={handlePaymentChange}
-                  className={styles.textInput}
-                >
-                  <option value="341 - Itau">341 - Itau</option>
-                  <option value="237 - Bradesco">237 - Bradesco</option>
-                  <option value="001 - Banco do Brasil">
-                    001 - Banco do Brasil
-                  </option>
-                  <option value="104 - Caixa Econômica">
-                    104 - Caixa Econômica
-                  </option>
-                  <option value="033 - Santander">033 - Santander</option>
-                </select>
-              </div>
-
-              <div className={styles.gridRowAgencyAccount}>
-                <div className={styles.formGroup}>
-                  <label>Agência *</label>
-                  <input
-                    type="text"
-                    name="agencia"
-                    autoComplete="off"
-                    value={paymentData.agencia}
-                    onChange={handlePaymentChange}
-                    className={styles.textInput}
-                  />
-                </div>
-                <div className={styles.formGroup}>
-                  <label>Dígito agência</label>
-                  <input
-                    type="text"
-                    name="digitoAgencia"
-                    autoComplete="off"
-                    value={paymentData.digitoAgencia}
-                    onChange={handlePaymentChange}
-                    placeholder="Dígito"
-                    className={styles.textInput}
-                  />
-                </div>
-                <div className={styles.formGroup}>
-                  <label>Conta corrente *</label>
-                  <input
-                    type="text"
-                    name="contaCorrente"
-                    autoComplete="off"
-                    value={paymentData.contaCorrente}
-                    onChange={handlePaymentChange}
-                    className={styles.textInput}
-                  />
-                </div>
-              </div>
-            </div>
+            <PaymentStep
+              banks={banks}
+              banksError={banksError}
+              clientType={clientType}
+              documentNumber={documentNumber}
+              getBankValue={getBankValue}
+              isLoadingBanks={isLoadingBanks}
+              onPaymentChange={handlePaymentChange}
+              paymentData={paymentData}
+            />
           )}
 
           {/* ETAPA 4: Resumo da Venda */}
           {currentStep === 4 && (
-            <div className={styles.stepContent}>
-              <div className={styles.cardHeader}>
-                <h2>Resumo da contratação</h2>
-                <p>Confira as informações do cliente para ir à última etapa.</p>
-              </div>
+            <SummaryStep>
 
               <div className={styles.summarySectionGroup}>
                 <h3 className={styles.summarySectionTitle}>
@@ -1603,95 +1780,160 @@ export default function ProposalFlow() {
                     : "Dados pessoais"}
                 </h3>
                 <div className={styles.summaryCard}>
-                  <div className={styles.summaryField}>
-                    <span className={styles.summaryLabel}>
-                      {clientType === "juridica"
-                        ? "Nome fantasia"
-                        : "Nome completo"}
-                    </span>
-                    <strong className={styles.summaryValue}>
-                      {clientType === "juridica"
-                        ? formData.nomeFantasia || "-"
-                        : formData.nomeCompleto || "-"}
-                    </strong>
-                  </div>
-                  <div className={styles.summaryField}>
-                    <span className={styles.summaryLabel}>
-                      {clientType === "juridica" ? "CNPJ" : "CPF"}
-                    </span>
-                    <strong className={styles.summaryValue}>
-                      {documentNumber || "-"}
-                    </strong>
-                  </div>
-                  <div className={styles.summaryField}>
-                    <span className={styles.summaryLabel}>E-mail</span>
-                    <strong className={styles.summaryValue}>
-                      {clientType === "juridica"
-                        ? formData.representanteEmail || "-"
-                        : formData.email || "-"}
-                    </strong>
-                  </div>
-                  <div className={styles.summaryField}>
-                    <span className={styles.summaryLabel}>Telefone</span>
-                    <strong className={styles.summaryValue}>
-                      {formData.celular1 || "-"}
-                    </strong>
-                  </div>
+                  {clientType === "juridica"
+                    ? renderSummaryFields([
+                      ["Nome fantasia", formData.nomeFantasia],
+                      ["Razão social", formData.razaoSocial],
+                      ["Faturamento mensal", formData.faturamentoMensal],
+                      ["Ramo de atividade", formData.ramoAtividade],
+                      ["CNPJ", documentNumber],
+                    ])
+                    : renderSummaryFields([
+                      ["Nome completo", formData.nomeCompleto],
+                      ["Nome social", formData.isNomeSocial ? "Sim" : "Não"],
+                      ["Pronome de preferência", formData.pronomePreferencia],
+                      ["Sexo", formData.sexo],
+                      ["Data de nascimento", formData.dataNascimento],
+                      ["RG", formData.naoInformarRg ? "Não informado" : formData.rg],
+                      ["Órgão expedidor", formData.naoInformarRg ? "Não informado" : formData.orgaoExpedidor],
+                      ["Data de expedição", formData.naoInformarRg ? "Não informado" : formData.dataExpedicao],
+                      ["Estado civil", formData.estadoCivil],
+                      ["Nacionalidade", formData.nacionalidade],
+                      ["CPF", documentNumber],
+                    ])}
                 </div>
               </div>
 
-              {/* Resumo do Produto Selecionado */}
+              <div className={styles.summarySectionGroup}>
+                <h3 className={styles.summarySectionTitle}>
+                  {clientType === "juridica" ? "Contato do representante" : "Contato"}
+                </h3>
+                <div className={styles.summaryCard}>
+                  {renderSummaryFields(
+                    clientType === "juridica"
+                      ? [
+                        ["Nome", formData.representanteNome],
+                        ["E-mail", formData.representanteEmail],
+                        ["Celular 1", formData.celular1],
+                        ["Telefone 2", formData.celular2],
+                        ["Telefone 3", formData.celular3],
+                      ]
+                      : [
+                        ["E-mail", formData.email],
+                        ["Celular 1", formData.celular1],
+                        ["Celular 2", formData.celular2],
+                        ["Celular 3", formData.celular3],
+                      ]
+                  )}
+                </div>
+              </div>
+
+              <div className={styles.summarySectionGroup}>
+                <h3 className={styles.summarySectionTitle}>Endereço</h3>
+                <div className={styles.summaryCard}>
+                  {renderSummaryFields([
+                    ["CEP", formData.cep],
+                    ["Endereço", formData.endereco],
+                    ["Número", formData.numero],
+                    ["Complemento", formData.complemento],
+                    ["Bairro", formData.bairro],
+                    ["Cidade", formData.cidade],
+                    ["UF", formData.uf],
+                  ])}
+                </div>
+              </div>
+
+              {clientType === "fisica" && (
+                <>
+                  <div className={styles.summarySectionGroup}>
+                    <h3 className={styles.summarySectionTitle}>Dados profissionais e financeiros</h3>
+                    <div className={styles.summaryCard}>
+                      {renderSummaryFields([
+                        ["Profissão", professionSearch || formData.profissao],
+                        ["Faixa de renda", incomeLabel],
+                      ])}
+                    </div>
+                  </div>
+
+                  <div className={styles.summarySectionGroup}>
+                    <h3 className={styles.summarySectionTitle}>Pessoa politicamente exposta - PPE</h3>
+                    <div className={styles.summaryCard}>
+                      {renderSummaryFields([[
+                        "O cliente é pessoa politicamente exposta?",
+                        formData.isPpe === "sim" ? "Sim" : "Não",
+                      ]])}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className={styles.summarySectionGroup}>
+                <h3 className={styles.summarySectionTitle}>Forma de pagamento</h3>
+                <div className={styles.summaryCard}>
+                  {renderSummaryFields([
+                    ["Banco", paymentData.banco],
+                    ["Agência", paymentData.agencia],
+                    ["Dígito da agência", paymentData.digitoAgencia],
+                    ["Conta corrente", paymentData.contaCorrente],
+                  ])}
+                </div>
+              </div>
+
               {proposalData && proposalData.product_name && (
-                <div className={styles.summarySectionGroup} style={{ marginTop: "20px" }}>
+                <div className={styles.summarySectionGroup}>
                   <h3 className={styles.summarySectionTitle}>Produto selecionado</h3>
                   <div className={styles.summaryCard}>
-                    <div className={styles.summaryField}>
-                      <span className={styles.summaryLabel}>Produto</span>
-                      <strong className={styles.summaryValue}>{proposalData.product_name}</strong>
-                    </div>
-                    <div className={styles.summaryField}>
-                      <span className={styles.summaryLabel}>Quantidade</span>
-                      <strong className={styles.summaryValue}>{proposalData.quantity || 1} título(s)</strong>
-                    </div>
-                    <div className={styles.summaryField}>
-                      <span className={styles.summaryLabel}>Valor total</span>
-                      <strong className={styles.summaryValue}>
-                        {Number(proposalData.total_value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                      </strong>
-                    </div>
-                    {proposalData.month_term > 0 && (
-                      <div className={styles.summaryField}>
-                        <span className={styles.summaryLabel}>Vigência</span>
-                        <strong className={styles.summaryValue}>{proposalData.month_term} meses</strong>
-                      </div>
-                    )}
+                    {renderSummaryFields([
+                      ["Produto", proposalData.product_name],
+                      ["Quantidade", `${proposalData.quantity || 1} título(s)`],
+                      ["Valor total", formatCurrency(proposalData.total_value)],
+                      ["Vigência", proposalData.month_term > 0 ? `${proposalData.month_term} meses` : ""],
+                    ])}
                   </div>
                 </div>
               )}
-            </div>
+
+              <label className={styles.summaryConfirmation}>
+                <input
+                  type="checkbox"
+                  checked={isSummaryConfirmed}
+                  onChange={(event) => setIsSummaryConfirmed(event.target.checked)}
+                />
+                <span>
+                  Declaro que conferi todas as informações preenchidas e confirmo que estão corretas.
+                </span>
+              </label>
+            </SummaryStep>
           )}
 
           {/* ETAPA 5: Assinatura por Token */}
           {currentStep === 5 && (
-            <div className={styles.stepContent}>
-              <div className={styles.cardHeader}>
-                <h2>Assinatura por token</h2>
-                <p>
-                  {!isTokenSent
-                    ? "Selecione o formato para que seu cliente receba o token de assinatura virtual da proposta:"
-                    : `Código de autenticação Enviado por ${tokenMethod === "email" ? "E-MAIL" : "SMS"}`}
-                </p>
-              </div>
+            <SignatureStep isTokenSent={isTokenSent} tokenMethod={tokenMethod}>
 
               {!isTokenSent ? (
                 <div className={styles.tokenBox}>
+                  <div className={styles.tokenDestinations}>
+                    <span className={styles.tokenDestinationsTitle}>Destinos cadastrados</span>
+                    <div className={styles.tokenDestinationsGrid}>
+                      <div className={styles.tokenDestinationItem}>
+                        <span>E-mail</span>
+                        <strong title={clientType === "juridica" ? formData.representanteEmail : formData.email}>
+                          {clientType === "juridica" ? formData.representanteEmail : formData.email}
+                        </strong>
+                      </div>
+                      <div className={styles.tokenDestinationItem}>
+                        <span>SMS</span>
+                        <strong title={formData.celular1}>{formData.celular1}</strong>
+                      </div>
+                    </div>
+                  </div>
                   <span className={styles.formSubLabel}>
                     Forma de recebimento
                   </span>
 
-                  <div className={styles.tokenOptionsGrid}>
+                  <div className={styles.incomeGrid}>
                     <label
-                      className={`${styles.tokenCardOption} ${tokenMethod === "email" ? styles.selectedCard : ""}`}
+                      className={`${styles.incomeRadioCard} ${tokenMethod === "email" ? styles.selectedIncomeCard : ""}`}
                     >
                       <input
                         type="radio"
@@ -1699,18 +1941,11 @@ export default function ProposalFlow() {
                         checked={tokenMethod === "email"}
                         onChange={() => setTokenMethod("email")}
                       />
-                      <div>
-                        <strong>E-mail</strong>
-                        <span className={styles.tokenContactText}>
-                          {clientType === "juridica"
-                            ? formData.representanteEmail
-                            : formData.email}
-                        </span>
-                      </div>
+                      <span>E-mail</span>
                     </label>
 
                     <label
-                      className={`${styles.tokenCardOption} ${tokenMethod === "sms" ? styles.selectedCard : ""}`}
+                      className={`${styles.incomeRadioCard} ${tokenMethod === "sms" ? styles.selectedIncomeCard : ""}`}
                     >
                       <input
                         type="radio"
@@ -1718,12 +1953,7 @@ export default function ProposalFlow() {
                         checked={tokenMethod === "sms"}
                         onChange={() => setTokenMethod("sms")}
                       />
-                      <div>
-                        <strong>SMS</strong>
-                        <span className={styles.tokenContactText}>
-                          {formData.celular1}
-                        </span>
-                      </div>
+                      <span>SMS</span>
                     </label>
                   </div>
                 </div>
@@ -1746,12 +1976,14 @@ export default function ProposalFlow() {
 
                   <input
                     type="text"
-                    maxLength={6}
+                    inputMode="numeric"
+                    maxLength={4}
                     autoComplete="off"
-                    placeholder="Digite o código"
+                    placeholder="Digite o código de 4 dígitos"
                     value={tokenCode}
-                    onChange={(e) => setTokenCode(e.target.value)}
+                    onChange={(event) => setTokenCode(event.target.value.replace(/\D/g, "").slice(0, 4))}
                     className={styles.tokenCodeInput}
+                    aria-invalid={tokenCode.length > 0 && !isTokenCodeValid}
                   />
 
                   <div className={styles.timerWrapper}>
@@ -1807,54 +2039,16 @@ export default function ProposalFlow() {
                   </div>
                 </div>
               )}
-            </div>
+            </SignatureStep>
           )}
 
           {/* ETAPA 6: Conclusão */}
           {currentStep === 6 && (
-            <div className={styles.stepContent}>
-              <div
-                className={styles.cardHeader}
-                style={{ textAlign: "center" }}
-              >
-                <h2>Proposta Gerada com Sucesso! ✅</h2>
-                <p>
-                  A proposta foi registrada na MAG. O cliente receberá as
-                  instruções para concluir a contratação.
-                </p>
-              </div>
-
-              <div className={styles.conclusionContainer}>
-                <span className={styles.conclusionSubTitle}>
-                  Geração da proposta
-                </span>
-
-                <div className={styles.proposalBox}>
-                  <span className={styles.proposalLabelText}>
-                    Número da proposta gerada:
-                  </span>
-                  <strong className={styles.proposalNumberText} style={{ fontSize: "1.6rem", color: "#003366" }}>
-                    {proposalNumber || "—"}
-                  </strong>
-
-                  <button
-                    type="button"
-                    onClick={handleDownloadProposal}
-                    className={styles.downloadProposalBtn}
-                  >
-                    ⬇ Baixar proposta
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleNewProposal}
-                  className={styles.newProposalBtn}
-                >
-                  + Nova Proposta
-                </button>
-              </div>
-            </div>
+            <ConclusionStep
+              onDownloadProposal={handleDownloadProposal}
+              onNewProposal={handleNewProposal}
+              proposalNumber={proposalNumber}
+            />
           )}
 
           {/* Rodapé de Ações do Formulário */}
@@ -1883,15 +2077,20 @@ export default function ProposalFlow() {
                   type="button"
                   onClick={handleNext}
                   className={styles.nextButton}
-                  disabled={isSaving || isConfirmingToken}
+                  disabled={
+                    isSaving ||
+                    isConfirmingToken ||
+                    (currentStep === 4 && !isSummaryConfirmed) ||
+                    (currentStep === 5 && isTokenSent && !isTokenCodeValid)
+                  }
                 >
                   {isConfirmingToken
                     ? "Confirmando token..."
                     : isSaving
-                    ? "Salvando..."
-                    : currentStep === 5
-                    ? "Confirmar token e gerar proposta"
-                    : "Avançar"}
+                      ? "Salvando..."
+                      : currentStep === 5
+                        ? "Confirmar token e gerar proposta"
+                        : "Avançar"}
                 </button>
               )}
             </div>
@@ -1899,16 +2098,22 @@ export default function ProposalFlow() {
         </div>
       </div>
 
-      {/* Botão Flutuante Dev para Acesso Rápido ao JSON */}
-      <button
-        type="button"
-        onClick={() => setIsJsonModalOpen(true)}
-        className={styles.devFloatingButton}
-        title="Visualizar JSON de envio das APIs em tempo real"
-      >
-        <span>🛠️</span>
-        <span>Ver JSON de Envio (Dev)</span>
-      </button>
+      <div className={styles.devActions}>
+        <DevAutoFillButton
+          currentStep={currentStep}
+          isRunning={isAutoFilling}
+          onRun={handleAutoFillCurrentStep}
+        />
+        <button
+          type="button"
+          onClick={() => setIsJsonModalOpen(true)}
+          className={styles.devFloatingButton}
+          title="Visualizar JSON de envio das APIs em tempo real"
+        >
+          <span>🛠️</span>
+          <span>Ver JSON de Envio (Dev)</span>
+        </button>
+      </div>
 
       {/* Modal Dev de Visualização do JSON em Tempo Real */}
       <Modal
@@ -1942,6 +2147,6 @@ export default function ProposalFlow() {
           {JSON.stringify(currentPayload, null, 2)}
         </div>
       </Modal>
-    </MainLayout>
+    </>
   );
 }

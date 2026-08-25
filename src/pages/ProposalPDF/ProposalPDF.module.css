@@ -1,0 +1,262 @@
+.pdfContainer {
+  font-family: 'Open Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  color: #333;
+  background-color: #e5e5e5; /* Gray background outside the page for preview */
+  min-height: 100vh;
+  padding: 20px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.page {
+  background-color: white;
+  width: 210mm;
+  min-height: 297mm; /* A4 format */
+  margin: 0 auto 20px auto;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
+  page-break-after: always;
+  position: relative;
+  overflow: hidden;
+}
+
+.coverPage {
+  background-color: var(--color-primary, #005aa5);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  text-align: center;
+  padding: 52px 56px 40px;
+}
+
+.coverLogo {
+  width: 180px;
+  height: 100px;
+  margin-bottom: 40px;
+  object-fit: contain;
+}
+
+.coverTitle {
+  max-width: 620px;
+  margin: 82px auto 28px;
+  font-size: 42px;
+  font-weight: bold;
+  line-height: 1.1;
+}
+
+.coverText {
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto 40px;
+  font-size: 16px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.coverFooter {
+  display: flex;
+  justify-content: space-around;
+  width: 100%;
+  padding-top: 22px;
+  margin-top: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.35);
+  font-size: 12px;
+  text-align: center;
+}
+
+.coverFooter div {
+  flex: 1;
+}
+
+.contentPage {
+  padding: 40px;
+}
+
+.headerLogo {
+  max-width: 100px;
+  height: 60px;
+  margin-bottom: 20px;
+  object-fit: contain;
+}
+
+.pageTitle {
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 20px;
+  color: #000;
+}
+
+.greeting {
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.sectionTitle {
+  font-size: 18px;
+  font-weight: bold;
+  color: #444;
+  margin: 30px 0 15px 0;
+}
+
+.card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.cardItem {
+  display: flex;
+  flex-direction: column;
+}
+
+.cardLabel {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.cardValue {
+  font-size: 14px;
+  font-weight: 600;
+  color: #000;
+}
+
+.textBlock {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #333;
+  margin-bottom: 15px;
+}
+
+.textBlock h3 {
+  font-size: 14px;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.signatureBox {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+  font-size: 11px;
+}
+
+.table th, .table td {
+  border: 1px solid #000;
+  padding: 5px;
+  text-align: center;
+}
+
+.table th {
+  font-weight: bold;
+}
+
+.loading {
+  font-size: 20px;
+  color: #666;
+  margin-top: 100px;
+}
+
+/* Print optimizations */
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  :global(html),
+  :global(body) {
+    background-color: white;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .pdfContainer {
+    display: block;
+    width: 210mm;
+    background-color: white;
+    padding: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .page {
+    display: block;
+    width: 210mm;
+    height: 297mm;
+    min-height: 297mm;
+    margin: 0;
+    box-shadow: none;
+    border: none;
+    overflow: hidden;
+    break-after: page;
+    page-break-after: always;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .coverSheet {
+    position: relative;
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .coverSheet .coverPage {
+    position: absolute;
+    inset: 0;
+    width: auto;
+    height: auto !important;
+    min-height: 0 !important;
+    box-sizing: border-box;
+    background-color: var(--color-primary, #005aa5) !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Remove anything that shouldn't be printed, like a print button */
+  .noPrint {
+    display: none !important;
+  }
+}
+
+.printBtn {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background-color: var(--color-primary, #005aa5);
+  color: white;
+  border: none;
+  border-radius: 50px;
+  padding: 15px 30px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+  z-index: 1000;
+}
+
+.printBtn:hover {
+  opacity: 0.9;
+}

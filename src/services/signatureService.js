@@ -1,5 +1,6 @@
 // src/services/signatureService.js
 import { api } from "./api";
+import { getActivePartnerCnpj } from "./partnerBranding";
 
 /**
  * Utilitário para limpar formatação e manter apenas dígitos
@@ -55,17 +56,21 @@ export function buildProposalPayload({
   signatureId = "",
 }) {
   const cnpj =
-    localStorage.getItem("@Mag:cnpj") ||
+    getActivePartnerCnpj() ||
     api.defaults.headers.common["cnpj"] ||
     "33608308000173";
 
   const rawDoc = cleanDigits(documentNumber);
   const isPj = clientType === "juridica";
 
+  const quantity = Number(proposalData?.quantity) || 1;
+  const unitContribution =
+    Number(proposalData?.unit_value) ||
+    (Number(proposalData?.total_value) / quantity) ||
+    100;
   const totalContribution =
     Number(proposalData?.total_value) ||
-    Number(proposalData?.unit_value) ||
-    100;
+    unitContribution * quantity;
 
   const clientName = isPj
     ? formData.razaoSocial || formData.nomeFantasia || ""
@@ -135,7 +140,7 @@ export function buildProposalPayload({
       receivedDate: "1900-01-01T00:00:00",
       issuedDate: "1900-01-01T00:00:00",
       totalContribution: totalContribution,
-      offerCode: proposalData?.offer_name || "CAPAD",
+      offerCode: proposalData?.offer_code || proposalData?.offerCode || proposalData?.offer_name || "CAPAD",
       distributionChannel: "Loja Online Capitalização",
       media: "",
       partnerVendorId: cleanDigits(cnpj),
@@ -231,7 +236,7 @@ export function buildProposalPayload({
     ],
     products: [
       {
-        productId: String(proposalData?.product_id || "PM0012T"),
+        productId: String(proposalData?.product_id || ""),
         productName: proposalData?.product_name || "PM0012T",
         productType: "TRADICIONAL",
         policyHolderRelated: "Titular",
@@ -244,11 +249,11 @@ export function buildProposalPayload({
             coverageName: "CAPITALIZACAO",
             coverageType: "Capitalizacao",
             term: Number(proposalData?.month_term) || 12,
-            qtyContracts: Number(proposalData?.quantity) || 1,
+            qtyContracts: quantity,
             contracts: [
               {
-                quantity: Number(proposalData?.quantity) || 1,
-                contributionValue: totalContribution,
+                quantity,
+                contributionValue: unitContribution,
                 lotteryNumber: [],
                 titleNumber: 0,
                 titleKey: "",
@@ -353,7 +358,7 @@ export function buildProposalPayload({
 export async function generateSignatureToken(params) {
   const cnpj =
     params.partnerCnpj ||
-    localStorage.getItem("@Mag:cnpj") ||
+    getActivePartnerCnpj() ||
     api.defaults.headers.common["cnpj"] ||
     "33608308000173";
 
@@ -382,7 +387,7 @@ export async function generateSignatureToken(params) {
 export async function confirmSignatureToken(params) {
   const cnpj =
     params.partnerCnpj ||
-    localStorage.getItem("@Mag:cnpj") ||
+    getActivePartnerCnpj() ||
     api.defaults.headers.common["cnpj"] ||
     "33608308000173";
 
@@ -410,7 +415,7 @@ export async function confirmSignatureToken(params) {
 export async function createUnderwritingProposal(params) {
   const cnpj =
     params.partnerCnpj ||
-    localStorage.getItem("@Mag:cnpj") ||
+    getActivePartnerCnpj() ||
     api.defaults.headers.common["cnpj"] ||
     "33608308000173";
 
@@ -448,4 +453,3 @@ export function extractProposalNumber(response) {
     ""
   );
 }
-

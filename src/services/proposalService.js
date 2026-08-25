@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
+import { getActivePartnerCnpj, getActivePartnerName } from "./partnerBranding";
 
 const LOCAL_STORAGE_KEY_PREFIX = "@Mag:proposal_";
 const CURRENT_PROPOSAL_KEY = "@Mag:currentProposalId";
@@ -12,6 +13,7 @@ export async function createProposal(data) {
     current_step: 1,
     start_date: new Date().toISOString(),
     product_id: String(data.productId || ""),
+    offer_code: String(data.offerCode || ""),
     product_name: data.productName || "",
     offer_name: data.offerName || "",
     quantity: Number(data.quantity) || 1,
@@ -19,8 +21,8 @@ export async function createProposal(data) {
     total_value: Number(data.totalValue) || 0,
     month_term: Number(data.monthTerm) || 0,
     rescue_value: Number(data.rescueValue) || 0,
-    partner_cnpj: data.partnerCnpj || localStorage.getItem("@Mag:cnpj") || "",
-    partner_name: data.partnerName || localStorage.getItem("@Mag:partnerName") || "",
+    partner_cnpj: data.partnerCnpj || getActivePartnerCnpj(),
+    partner_name: data.partnerName || getActivePartnerName(),
     client_type: "fisica",
     document_number: "",
     form_data: {},
@@ -174,8 +176,7 @@ export async function completeProposal(id, { proposalNumber, tokenCode, tokenMet
  * Busca todas as propostas do parceiro atual (Supabase + fallback localStorage)
  */
 export async function getAllProposals() {
-  const partnerCnpj =
-    localStorage.getItem("@Mag:cnpj") || "";
+  const partnerCnpj = getActivePartnerCnpj();
 
   // Supabase
   if (isSupabaseConfigured && supabase) {
@@ -220,4 +221,3 @@ export async function getAllProposals() {
   proposals.sort((a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0));
   return proposals;
 }
-
