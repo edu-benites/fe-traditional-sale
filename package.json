@@ -1,11 +1,19 @@
 {
+  "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "node scripts/dev-all.mjs",
+    "all": "npm run dev:all",
+    "env:setup": "node scripts/setup-env.mjs",
+    "run": "node scripts/run.mjs",
+    "dev:bff": "node server/bff.js",
+    "bff": "npm run dev:bff",
+    "env:check": "node server/check-env.js",
     "build": "vite build",
+    "start": "node server/bff.js",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.112.3",
     "@tanstack/react-query": "^5.101.4",
     "axios": "^1.18.1",
     "html2canvas": "^1.4.1",

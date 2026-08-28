@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { API_BASE_URL, getApiAccessToken } from './integrationConfig';
+import { API_BASE_URL } from './integrationConfig';
 
 // Criação da instância base do Axios para o projeto MAG
 export const api = axios.create({
@@ -10,17 +10,14 @@ export const api = axios.create({
   }
 });
 
-// Interceptor de Requisição (Request): Injeta o Token e registra logs em DEV
+// O BFF injeta a credencial no servidor; nenhum token de integração sai no bundle.
 api.interceptors.request.use(
   (config) => {
-    // 1. Injeção segura do Token de Autenticação
-    // Usa a chave padrão do projeto: '@Mag:sensedia_token'
-    const token = getApiAccessToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    const cnpj = sessionStorage.getItem('@Mag:cnpj')?.replace(/\D/g, '');
+    if (cnpj) {
+      config.headers.cnpj ||= cnpj;
+      config.headers['x-cnpj'] ||= cnpj;
     }
-
-    // 2. Log corporativo para debug (Substituto do Service Center) - Apenas em ambiente DEV
     if (import.meta.env.DEV) {
       console.group(`🚀 [API Request] ${config.method?.toUpperCase()} ${config.url}`);
       console.log('Headers:', config.headers);

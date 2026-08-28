@@ -31,7 +31,7 @@
   max-width: 720px;
   margin: 0;
   color: #0f172a;
-  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-size: clamp(1.8rem, 3.5vw, 2.75rem);
   letter-spacing: -0.04em;
   line-height: 1.04;
 }
@@ -292,7 +292,7 @@
   }
 
   .pageIntro h1 {
-    font-size: 2rem;
+    font-size: 1.8rem;
   }
 
   .contentCard {

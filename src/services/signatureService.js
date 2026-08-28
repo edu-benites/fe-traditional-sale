@@ -54,11 +54,10 @@ export function buildProposalPayload({
   currentStep = 1,
   steps = [],
   signatureId = "",
+  partnerCnpj = "",
 }) {
-  const cnpj =
-    getActivePartnerCnpj() ||
-    api.defaults.headers.common["cnpj"] ||
-    "33608308000173";
+  const cnpj = cleanDigits(partnerCnpj) || getActivePartnerCnpj() || cleanDigits(api.defaults.headers.common["cnpj"]) || "";
+  if (!cnpj) throw new Error("CNPJ do parceiro não identificado para montar a proposta.");
 
   const rawDoc = cleanDigits(documentNumber);
   const isPj = clientType === "juridica";
@@ -305,7 +304,7 @@ export function buildProposalPayload({
     signature: {
       type: "digital",
       signatureDate: nowIso,
-      token: tokenCode || "4147",
+      token: tokenCode || "",
       numberOfAttempts: 1,
       firstAttemptDate: "1900-01-01T00:00:00",
       lastAttemptDate: nowIso,
@@ -313,7 +312,7 @@ export function buildProposalPayload({
       tokenConfirmedUsing:
         tokenMethod === "email"
           ? clientEmail
-          : cleanDigits(formData.celular1) || "61984757440",
+          : cleanDigits(formData.celular1),
       signatureId:
         signatureId ||
         (typeof crypto !== "undefined" && crypto.randomUUID
@@ -356,11 +355,8 @@ export function buildProposalPayload({
  * Solicita a geração do token de assinatura por SMS ou E-mail utilizando o payload unificado
  */
 export async function generateSignatureToken(params) {
-  const cnpj =
-    params.partnerCnpj ||
-    getActivePartnerCnpj() ||
-    api.defaults.headers.common["cnpj"] ||
-    "33608308000173";
+  const cnpj = cleanDigits(params.partnerCnpj) || getActivePartnerCnpj() || cleanDigits(api.defaults.headers.common["cnpj"]) || "";
+  if (!cnpj) throw new Error("CNPJ do parceiro não identificado para gerar o token.");
 
   // Garante que o header CNPJ esteja configurado
   api.defaults.headers.common["cnpj"] = cnpj;
@@ -373,6 +369,7 @@ export async function generateSignatureToken(params) {
     {
       headers: {
         cnpj: cnpj,
+        "x-cnpj": cnpj,
         "Content-Type": "application/json",
       },
     }
@@ -385,11 +382,8 @@ export async function generateSignatureToken(params) {
  * Confirma o token de assinatura digitado pelo usuário (/api/sales-cap/v1/signature/confirm)
  */
 export async function confirmSignatureToken(params) {
-  const cnpj =
-    params.partnerCnpj ||
-    getActivePartnerCnpj() ||
-    api.defaults.headers.common["cnpj"] ||
-    "33608308000173";
+  const cnpj = cleanDigits(params.partnerCnpj) || getActivePartnerCnpj() || cleanDigits(api.defaults.headers.common["cnpj"]) || "";
+  if (!cnpj) throw new Error("CNPJ do parceiro não identificado para confirmar o token.");
 
   api.defaults.headers.common["cnpj"] = cnpj;
 
@@ -401,6 +395,7 @@ export async function confirmSignatureToken(params) {
     {
       headers: {
         cnpj: cnpj,
+        "x-cnpj": cnpj,
         "Content-Type": "application/json",
       },
     }
@@ -413,11 +408,8 @@ export async function confirmSignatureToken(params) {
  * Envia e gera a proposta final (/api/underwriting-cap/v1/proposal)
  */
 export async function createUnderwritingProposal(params) {
-  const cnpj =
-    params.partnerCnpj ||
-    getActivePartnerCnpj() ||
-    api.defaults.headers.common["cnpj"] ||
-    "33608308000173";
+  const cnpj = cleanDigits(params.partnerCnpj) || getActivePartnerCnpj() || cleanDigits(api.defaults.headers.common["cnpj"]) || "";
+  if (!cnpj) throw new Error("CNPJ do parceiro não identificado para gerar a proposta.");
 
   api.defaults.headers.common["cnpj"] = cnpj;
 
@@ -429,6 +421,7 @@ export async function createUnderwritingProposal(params) {
     {
       headers: {
         cnpj: cnpj,
+        "x-cnpj": cnpj,
         "Content-Type": "application/json",
       },
     }

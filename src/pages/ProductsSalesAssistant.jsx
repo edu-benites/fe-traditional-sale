@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../services/api";
-import { OUTSYSTEMS_BASE_URL } from "../services/integrationConfig";
 import PartnerHeader from "../components/PartnerHeader/PartnerHeader";
 import { getActivePartnerCnpj, getActivePartnerName } from "../services/partnerBranding";
 import { createProposal, updateProposal } from "../services/proposalService";
@@ -100,14 +98,11 @@ export default function ProductsSalesAssistant() {
     async function loadOffers() {
       try {
         const cnpj = getActivePartnerCnpj();
-        const response = await api.get(
-          `${OUTSYSTEMS_BASE_URL}/rest/MAG_Clients/Product`,
-          {
-            params: { CNPJ: cnpj },
-            headers: { CNPJ: cnpj },
-          }
-        );
-        const availableOffers = getOffers(response.data)
+        const response = await fetch(`/bff/outsystems/products?CNPJ=${encodeURIComponent(cnpj)}`, {
+          headers: { CNPJ: cnpj },
+        });
+        if (!response.ok) throw new Error(`OutSystems respondeu ${response.status}`);
+        const availableOffers = getOffers(await response.json())
           .map(normalizeOffer)
           .filter((offer) => offer.productId);
         const lowestContribution = Math.min(
