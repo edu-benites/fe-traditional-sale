@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { api } from "../services/api";
-import { API_BASE_URL } from "../services/integrationConfig";
 import PartnerHeader from "../components/PartnerHeader/PartnerHeader";
 import { getActivePartnerCnpj } from "../services/partnerBranding";
 import { getProposalById, updateProposal, completeProposal } from "../services/proposalService";
@@ -27,6 +26,12 @@ import {
   isValidCpf,
 } from "./proposal-flow/validation";
 import styles from "./ProposalFlow.module.css";
+
+function apiErrorMessage(body, fallback) {
+  if (typeof body === "string" && body.trim()) return body;
+  if (Array.isArray(body?.messages) && body.messages.length) return body.messages.join("\n");
+  return body?.message || body?.Message || body?.error || body?.Error || body?.detail || body?.Detail || fallback;
+}
 
 export default function ProposalFlow() {
   const navigate = useNavigate();
@@ -498,17 +503,12 @@ export default function ProposalFlow() {
             (confirmResponse?.Error && confirmResponse.Error !== "") ||
             confirmResponse?.statusCode === 400 ||
             confirmResponse?.statusCode === 401 ||
-            confirmResponse?.statusCode === 422;
+            confirmResponse?.statusCode === 422 ||
+            confirmResponse?.status === "badRequest" ||
+            (Array.isArray(confirmResponse?.messages) && confirmResponse.messages.length > 0);
 
           if (isConfirmFailed) {
-            const apiMsg =
-              confirmResponse?.message ||
-              confirmResponse?.Message ||
-              confirmResponse?.error ||
-              confirmResponse?.Error ||
-              confirmResponse?.detail ||
-              confirmResponse?.Detail ||
-              "Token inválido ou expirado. Verifique o código e tente novamente.";
+            const apiMsg = apiErrorMessage(confirmResponse, "Token inválido ou expirado. Verifique o código e tente novamente.");
             setConfirmError(apiMsg);
             setIsConfirmingToken(false);
             setIsSaving(false);
@@ -544,15 +544,7 @@ export default function ProposalFlow() {
           console.error("Erro na confirmação/geração da proposta:", error);
           // Captura mensagem de erro de respostas HTTP 4xx/5xx
           const apiErrorBody = error?.response?.data;
-          const errorMsg =
-            apiErrorBody?.message ||
-            apiErrorBody?.Message ||
-            apiErrorBody?.error ||
-            apiErrorBody?.Error ||
-            apiErrorBody?.detail ||
-            apiErrorBody?.Detail ||
-            (typeof apiErrorBody === "string" ? apiErrorBody : null) ||
-            "Erro ao confirmar token ou gerar proposta. Verifique o código e tente novamente.";
+          const errorMsg = apiErrorMessage(apiErrorBody, "Erro ao confirmar token ou gerar proposta. Verifique o código e tente novamente.");
           setConfirmError(errorMsg);
           setIsConfirmingToken(false);
           setIsSaving(false);
@@ -777,15 +769,10 @@ export default function ProposalFlow() {
     // 4. Se completou os 8 dígitos, dispara a busca na API corporativa
     if (value.length === 8) {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/sales-cap/v1/postalcode/${value}`, {
-          method: 'GET',
-          headers: {
-            'Authorization': 'Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IjI1MTNGMkE5MjcyRjEzRjkwNkVFQTJDMkUzNEMyM0JBMTZDNEI2QUYiLCJ0eXAiOiJKV1QiLCJ4NXQiOiJKUlB5cVNjdkVfa0c3cUxDNDB3anVoYkV0cTgifQ.eyJuYmYiOjE3ODM5NzU1OTMsImV4cCI6MTc4NDA2MTk5MywiaXNzIjoiaHR0cHM6Ly9pZGVudGlkYWRlaG1nLm1hZ2NhcC5jb20uYnIiLCJhdWQiOlsiaHR0cHM6Ly9pZGVudGlkYWRlaG1nLm1hZ2NhcC5jb20uYnIvcmVzb3VyY2VzIiwiMWU2YTllYmQtZTI4ZC00OGNiLTkxNjUtOTQ1YTMwNDBiOTNlIl0sImNsaWVudF9pZCI6InVzcl9jYXBfYXBpX2htZyIsImNsaWVudF9jcGYiOiJvcGVyYWNhbyIsImNsaWVudF9lbXByZXNhIjpbIjAyMDM4MjJjMDAwODMwIiwiMDQ4OTE4NTAwMDAxODgiLCIyMjA4NTAwMzAwMDEwOCIsIjI0NDgzMTAwMDAxMDciLCIzMzYwODMwODAwMDE3MyIsIjUyNzgwNTUxMDAwMTE5Il0sImp0aSI6ImhJd1NDeWVsc2JqdF94NWI4a2ZSYkEiLCJzY29wZSI6WyJjYXAuYXBpIl19.TAvlGt123h_3oRUcIeRz_Qu2ADALB-FnQT0SZ_lOrLVZpBe82fdobQ9SnLzf6_tgFnaOtZ0mXt5phRByzGJKT2DQMZv2PWQiXE1qxPReiGPmJHZoNG4T_YAJUuI50yfP-FYE_cLozFcSbwavh2xsDPm0JlAdi1fxSe9yNlwACHOg-yq35T60eIPn17ENS4Q2N5bA47iCGnpfHHkXHRCi2DzCz--LB0pd3pidZxCziiAns_EW8gyXV5jvYNvxdQeAZir3A950Zre0SShPqWIkID-jQ3XVkcX6-B81Uoz5UAr4ZcKPpwfbVgK4BgWMukorSmaPiIImF3f2Dd7Pg1aSNw'
-          }
-        });
+        const response = await api.get(`/api/sales-cap/v1/postalcode/${value}`);
 
-        if (response.ok) {
-          const data = await response.json();
+        const data = response.data;
+        if (data) {
 
           // Preenche os campos com os dados retornados pela API da MAG
           setFormData((prev) => ({
@@ -955,8 +942,7 @@ export default function ProposalFlow() {
             >
 
               {clientType === "juridica" ? (
-                /* ================= CADASTRO PJ ================= */
-                <>
+                        <>
                   {/* Seção: Dados Empresariais */}
                   <div
                     className={styles.sectionBlock}
@@ -1243,8 +1229,7 @@ export default function ProposalFlow() {
                   </div>
                 </>
               ) : (
-                /* ================= CADASTRO PESSOA FÍSICA ================= */
-                <>
+                        <>
                   {/* Seção: Dados Pessoais / Básicos */}
                   <div
                     className={styles.sectionBlock}

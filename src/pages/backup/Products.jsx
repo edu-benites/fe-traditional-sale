@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { MainLayout, Icon } from "mag-design-system";
 import { createProposal } from "../../services/proposalService";
 import { api } from "../../services/api";
-import { OUTSYSTEMS_BASE_URL } from "../../services/integrationConfig";
 import styles from "../Products.module.css";
 
 export function ProductsBackup() {
@@ -52,17 +51,12 @@ export function ProductsBackup() {
         }
 
         // API Venda Assistida CAP - endpoint oficial de homologação
-        // Usa o token de autenticação do localStorage
-        const token = localStorage.getItem("@Mag:sensedia_token");
         const headers = {
           'Content-Type': 'application/json',
           'CNPJ': cnpj,
         };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
 
-        const newApiUrl = `${OUTSYSTEMS_BASE_URL}/rest/MAG_Clients/Product?CNPJ=${cnpj}`;
+        const newApiUrl = `/bff/outsystems/products?CNPJ=${encodeURIComponent(cnpj)}`;
         const response = await fetch(newApiUrl, {
           method: 'GET',
           headers: headers,

@@ -41,7 +41,7 @@
   max-width: 620px;
   margin: 0;
   color: #0f172a;
-  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-size: clamp(1.8rem, 3.5vw, 2.75rem);
   letter-spacing: -0.04em;
   line-height: 1.02;
 }
@@ -252,7 +252,7 @@
 }
 
 .cardHeader h2 {
-  font-size: 1.5rem;
+  font-size: 1.35rem;
   color: var(--color-primary, #003366);
   margin: 0 0 4px 0;
 }
@@ -720,7 +720,7 @@
 }
 
 .proposalNumberText {
-  font-size: 1.6rem;
+  font-size: 1.4rem;
   font-weight: 700;
   color: var(--color-primary, #003366);
   letter-spacing: 1px;
@@ -1153,7 +1153,7 @@
   }
 
   .flowIntro h1 {
-    font-size: 2rem;
+    font-size: 1.8rem;
   }
 
   .flowIntro p:not(.flowEyebrow) {
@@ -1201,7 +1201,7 @@
   }
 
   .cardHeader h2 {
-    font-size: 1.3rem;
+    font-size: 1.2rem;
   }
 
   .gridRow,

@@ -141,3 +141,7 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Banco local do BFF
+data/*.sqlite
+data/*.sqlite-*
